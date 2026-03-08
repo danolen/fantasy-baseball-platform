@@ -9,7 +9,7 @@ select id,
     avg(h) as h,
     avg(bb) as bb,
     avg(w) as w,
-    avg(qs) as qs,
+    --avg(qs) as qs,
     avg(k) as k,
     avg(
       case
@@ -21,6 +21,13 @@ select id,
     avg(whip) as whip,
     avg(k_per_9) as k_per_9,
     avg(bb_per_9) as bb_per_9
-from {{ ref('stg_fg_proj_preseason_pitching_per_ip') }}
-where proj_system in ('steamer','atc','thebat','oopsy')
+from (
+    select *
+    from {{ ref('stg_fg_proj_preseason_pitching_per_ip') }}
+    
+    union all
+    
+    select *
+    from {{ ref('stg_ftn_proj_preseason_pitching_per_ip') }})
+where proj_system in ('zips','steamer','atc','thebat','oopsy','ftn')
 group by id
