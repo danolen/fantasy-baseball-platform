@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: ftn
+    database: AwsDataCatalog
+    schema: ftn
+    tables:
+      - name: projections_preseason
+        external:
+          location: s3://dn-lakehouse-dev/ftn/projections/preseason/hitting_and_pitching/

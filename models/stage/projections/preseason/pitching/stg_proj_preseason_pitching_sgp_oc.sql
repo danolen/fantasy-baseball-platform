@@ -15,7 +15,7 @@ with base as (
         agg.h,
         agg.bb,
         agg.w,
-        agg.qs,
+        --agg.qs,
         agg.k,
         agg.sv,
         agg.era,

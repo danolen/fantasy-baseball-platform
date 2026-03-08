@@ -19,6 +19,13 @@ select id,
     avg(avg) as avg,
     avg(obp) as obp,
     avg(slg) as slg
-from {{ ref('stg_fg_proj_preseason_hitting_per_pa') }}
-where proj_system in ('steamer','atc','thebat-x','oopsy')
+from (
+    select *
+    from {{ ref('stg_fg_proj_preseason_hitting_per_pa') }}
+    
+    union all
+    
+    select *
+    from {{ ref('stg_ftn_proj_preseason_hitting_per_pa') }})
+where proj_system in ('zips','steamer','atc','thebat-x','oopsy','ftn')
 group by id
