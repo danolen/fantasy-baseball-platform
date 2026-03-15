@@ -357,10 +357,10 @@ draft_type = st.radio(
 # The widget will remember the user's selection on subsequent runs
 
 # Format selection
-format_type = st.selectbox("Select Format", ["50s", "OC"])
+format_type = st.selectbox("Select Format", ["50s", "OC", "ME"])
 
 # Clear cache from other format when switching (memory optimization)
-for other_format in ["50s", "OC"]:
+for other_format in ["50s", "OC", "ME"]:
     if other_format != format_type:
         other_cache_key = f"player_data_{other_format}"
         if other_cache_key in st.session_state:
