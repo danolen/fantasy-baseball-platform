@@ -37,7 +37,7 @@ sgp_constants as (
         sgp_sb,
         sgp_avg
     from {{ ref('mart_sgp_factors') }}
-    where _filename = 'NFBC 50s 2025 Overall Standings.csv'
+    where _filename = 'NFBC ME 2025 Overall Standings.csv'
 ),
 
 sgps as (
@@ -60,7 +60,7 @@ sgps as (
         b.hr/s.sgp_hr as hr_sgp,
         b.rbi/s.sgp_rbi as rbi_sgp,
         b.sb/s.sgp_sb as sb_sgp,
-        ((h + 1725.0) / (ab + 6805.0) - 0.2535) / s.sgp_avg as avg_sgp
+        ((h + 1712.0) / (ab + 6803.0) - 0.2517) / s.sgp_avg as avg_sgp
     from base b
     cross join sgp_constants s
 )

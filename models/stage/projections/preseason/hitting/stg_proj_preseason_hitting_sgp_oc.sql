@@ -44,15 +44,15 @@ sgps as (
     select b.*,
         case when pos like '%C%' then 'C'
             when pos like '%2B%' then '2B'
-            when pos like '%OF%' then 'OF'
             when pos like '%3B%' then '3B'
+            when pos like '%OF%' then 'OF'
             when pos like '%1B%' then '1B'
             when pos like '%SS%' then 'SS'
             else 'UT' end as position,
         case when pos like '%C%' then 'C'
             when pos like '%2B%' then 'MI'
-            when pos like '%OF%' then 'OF'
             when pos like '%3B%' then 'CI'
+            when pos like '%OF%' then 'OF'
             when pos like '%1B%' then 'CI'
             when pos like '%SS%' then 'MI'
             else 'UT' end as pos_group,
