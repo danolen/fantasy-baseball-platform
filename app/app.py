@@ -1011,6 +1011,21 @@ if st.session_state[cache_key] is not None:
                     
             except Exception as e:
                 st.warning(f"Error loading percentile data: {str(e)}")
+            
+            # Team value breakdown
+            if 'value' in my_team_df.columns:
+                values = pd.to_numeric(my_team_df['value'], errors='coerce').fillna(0)
+                is_pitcher = my_team_df['pos'].astype(str) == 'P'
+                total_val = values.sum()
+                hit_val = values[~is_pitcher].sum()
+                pit_val = values[is_pitcher].sum()
+                hit_pct = (hit_val / total_val * 100) if total_val else 0
+                pit_pct = (pit_val / total_val * 100) if total_val else 0
+                st.caption(
+                    f"**Team Value:** \\${total_val:,.2f} "
+                    f"| Hitters: \\${hit_val:,.2f} ({hit_pct:.0f}%) "
+                    f"| Pitchers: \\${pit_val:,.2f} ({pit_pct:.0f}%)"
+                )
         else:
             st.info("Add players to 'My Team' to see stats comparison.")
         
