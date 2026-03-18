@@ -276,6 +276,28 @@ def load_percentiles(format_type, schema, s3_output, region):
     return cursor.execute(query).as_pandas()
 
 
+@st.cache_data(ttl=900)
+def load_rankings(table_name, schema, s3_output, region):
+    """Load player rankings from Athena, cached for 15 minutes across all sessions."""
+    conn = connect(
+        s3_staging_dir=s3_output,
+        region_name=region,
+        schema_name=schema,
+        cursor_class=PandasCursor
+    )
+    columns_needed = [
+        'id', 'name', 'team', 'pos', 'rank', 'adp', 'min_pick', 'max_pick',
+        'rank_diff', 'projected_opening_day_status', 'value',
+        'pa', 'ab', 'r', 'hr', 'rbi', 'sb', 'avg', 'obp', 'slg',
+        'ip', 'k', 'w', 'sv', 'era', 'whip'
+    ]
+    columns_str = ', '.join(columns_needed)
+    query = f"SELECT {columns_str} FROM {schema}.{table_name} ORDER BY rank"
+    cursor = conn.cursor()
+    df = cursor.execute(query).as_pandas()
+    return optimize_dataframe_memory(df)
+
+
 def optimize_dataframe_memory(df):
     """Optimize DataFrame memory usage by converting to efficient dtypes"""
     df = df.copy()  # Work on a copy to avoid modifying original
@@ -419,8 +441,9 @@ if cache_key not in st.session_state:
 # Refresh button to clear cache and reload data
 refresh_button = st.button("🔄 Refresh Data", help="Clear cached data and reload from Athena")
 
-# If refresh button clicked, clear the cache and recalculate pick counter
+# If refresh button clicked, clear both caches and recalculate pick counter
 if refresh_button:
+    load_rankings.clear()
     st.session_state[cache_key] = None
     st.session_state[timestamp_key] = None
     # Recalculate pick counter from DynamoDB to sync with other devices
@@ -438,39 +461,10 @@ if refresh_button:
 if st.session_state[cache_key] is None:
     with st.spinner("Loading data from Athena..."):
         try:
-            # Connect to Athena
-            conn = connect(
-                s3_staging_dir=ATHENA_S3_OUTPUT,
-                region_name=ATHENA_REGION,
-                schema_name=ATHENA_SCHEMA,
-                cursor_class=PandasCursor
-            )
-            
-            # Select only columns we actually use (memory optimization)
-            # This reduces memory usage significantly compared to SELECT *
-            columns_needed = [
-                'id', 'name', 'team', 'pos', 'rank', 'adp', 'min_pick', 'max_pick', 
-                'rank_diff', 'projected_opening_day_status', 'value', 
-                'pa', 'ab', 'r', 'hr', 'rbi', 'sb', 'avg', 'obp', 'slg', 
-                'ip', 'k', 'w', 'sv', 'era', 'whip'
-            ]
-            columns_str = ', '.join(columns_needed)
-            query = f"SELECT {columns_str} FROM {ATHENA_SCHEMA}.{table_name} ORDER BY rank"
-            
-            # Execute query and get results as pandas DataFrame
-            cursor = conn.cursor()
-            df = cursor.execute(query).as_pandas()
-            
-            # Optimize memory usage before caching
-            df = optimize_dataframe_memory(df)
-            
-            # Store in session_state (this is the caching part!)
-            # Next time the page reruns, this data will still be here
+            df = load_rankings(table_name, ATHENA_SCHEMA, ATHENA_S3_OUTPUT, ATHENA_REGION)
             st.session_state[cache_key] = df
             st.session_state[timestamp_key] = datetime.now()
-            
             st.success(f"Loaded {len(df)} players from Athena!")
-            
         except Exception as e:
             st.error(f"Error loading data: {str(e)}")
             st.info("""
