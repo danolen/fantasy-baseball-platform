@@ -244,6 +244,38 @@ def get_my_team_players(table, draft_session_id, force_refresh=False):
         st.warning(f"Error getting my team players: {str(e)}")
         return set()
 
+@st.cache_data(ttl=3600)
+def load_percentiles(format_type, schema, s3_output, region):
+    """Load SGP percentiles from Athena, cached for 1 hour across all sessions."""
+    conn = connect(
+        s3_staging_dir=s3_output,
+        region_name=region,
+        schema_name=schema,
+        cursor_class=PandasCursor
+    )
+    query = f"""
+    WITH filename_parts AS (
+        SELECT 
+            _filename,
+            category,
+            p80,
+            p90,
+            split_part(_filename, ' ', 2) as format_part,
+            cast(split_part(_filename, ' ', 3) as int) as year_part
+        FROM {schema}.mart_sgp_percentiles
+    )
+    SELECT 
+        category,
+        p80,
+        p90
+    FROM filename_parts
+    WHERE format_part = '{format_type}'
+    AND year_part = (SELECT max(year_part) FROM filename_parts WHERE format_part = '{format_type}')
+    """
+    cursor = conn.cursor()
+    return cursor.execute(query).as_pandas()
+
+
 def optimize_dataframe_memory(df):
     """Optimize DataFrame memory usage by converting to efficient dtypes"""
     df = df.copy()  # Work on a copy to avoid modifying original
@@ -856,38 +888,7 @@ if st.session_state[cache_key] is not None:
             st.subheader("My Team Stats vs Percentiles")
             
             try:
-                # Query percentiles table to get the right format and max year
-                conn = connect(
-                    s3_staging_dir=ATHENA_S3_OUTPUT,
-                    region_name=ATHENA_REGION,
-                    schema_name=ATHENA_SCHEMA,
-                    cursor_class=PandasCursor
-                )
-                
-                # Get percentiles for the selected format and max year
-                percentiles_query = f"""
-                WITH filename_parts AS (
-                    SELECT 
-                        _filename,
-                        category,
-                        p80,
-                        p90,
-                        -- Extract format (after first space) and year (after second space)
-                        split_part(_filename, ' ', 2) as format_part,
-                        cast(split_part(_filename, ' ', 3) as int) as year_part
-                    FROM {ATHENA_SCHEMA}.mart_sgp_percentiles
-                )
-                SELECT 
-                    category,
-                    p80,
-                    p90
-                FROM filename_parts
-                WHERE format_part = '{format_type}'
-                AND year_part = (SELECT max(year_part) FROM filename_parts WHERE format_part = '{format_type}')
-                """
-                
-                cursor = conn.cursor()
-                percentiles_df = cursor.execute(percentiles_query).as_pandas()
+                percentiles_df = load_percentiles(format_type, ATHENA_SCHEMA, ATHENA_S3_OUTPUT, ATHENA_REGION)
                 
                 if len(percentiles_df) > 0:
                     # Aggregate my team stats
