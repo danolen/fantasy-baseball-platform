@@ -300,8 +300,6 @@ def load_rankings(table_name, schema, s3_output, region):
 
 def optimize_dataframe_memory(df):
     """Optimize DataFrame memory usage by converting to efficient dtypes"""
-    df = df.copy()  # Work on a copy to avoid modifying original
-    
     # Convert string columns to category (much more memory efficient)
     # Be more aggressive - convert if less than 70% unique (was 50%)
     for col in df.columns:
@@ -619,7 +617,7 @@ def render_filters_and_apply(df, draft_table, draft_session_id):
     st.session_state[filter_key]['draft_filter'] = st.session_state[widget_key]
     
     # Apply filters to the dataframe
-    filtered_df = df.copy()
+    filtered_df = df
     
     # Filter by position
     if selected_positions and 'pos' in filtered_df.columns:
@@ -876,7 +874,7 @@ if st.session_state[cache_key] is not None:
         
         # TEAM STATS COMPARISON CHART
         # Get players on my team (use full dataset, not filtered - team stats should always show regardless of filters)
-        my_team_df = df[df.get('My Team', False) == True].copy() if 'My Team' in df.columns else pd.DataFrame()
+        my_team_df = df[df.get('My Team', False) == True] if 'My Team' in df.columns else pd.DataFrame()
         
         if len(my_team_df) > 0:
             st.subheader("My Team Stats vs Percentiles")
@@ -1058,7 +1056,7 @@ if st.session_state[cache_key] is not None:
         
         # Only include columns that exist in the dataframe
         available_columns = [col for col in desired_columns if col in filtered_df.columns]
-        display_df = filtered_df[available_columns].copy()
+        display_df = filtered_df[available_columns]
         
         # Limit the display dataframe only (not the underlying filtered_df used for charts/calculations)
         # This way charts, team stats, and filtering still work with all data
