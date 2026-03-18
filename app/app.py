@@ -64,7 +64,7 @@ def get_config(key, default=None):
         if hasattr(st.secrets, key):
             return getattr(st.secrets, key)
             
-    except (AttributeError, KeyError, TypeError):
+    except Exception:
         pass
     
     # Fall back to environment variables or .env file
@@ -511,7 +511,6 @@ def render_filters_and_apply(df, draft_table, draft_session_id):
             selected_positions = st.multiselect(
                 "Position (can select multiple)", 
                 positions_list,
-                default=st.session_state[widget_key],
                 help="Select one or more positions. Shows players who have ANY of these positions.",
                 key=widget_key
             )
@@ -532,7 +531,6 @@ def render_filters_and_apply(df, draft_table, draft_session_id):
             selected_teams = st.multiselect(
                 "Team (can select multiple)", 
                 teams,
-                default=st.session_state[widget_key],
                 help="Select one or more teams. Shows players from ANY of these teams.",
                 key=widget_key
             )
@@ -553,7 +551,6 @@ def render_filters_and_apply(df, draft_table, draft_session_id):
             selected_statuses = st.multiselect(
                 "Opening Day Status (can select multiple)",
                 statuses,
-                default=st.session_state[widget_key],
                 help="Select one or more opening day statuses. Shows players with ANY of these statuses.",
                 key=widget_key
             )
@@ -571,7 +568,6 @@ def render_filters_and_apply(df, draft_table, draft_session_id):
         
         search_name = st.text_input(
             "Search Player Name", 
-            value=st.session_state[widget_key],
             key=widget_key
         )
         # Update our filter state from widget's session state
@@ -598,18 +594,11 @@ def render_filters_and_apply(df, draft_table, draft_session_id):
     if widget_key not in st.session_state:
         st.session_state[widget_key] = st.session_state[filter_key]['draft_filter']
     
-    # Get index for current value
-    current_filter = st.session_state[widget_key]
     filter_options = ["All", "Drafted Only", "Undrafted Only", "My Team Only"]
-    try:
-        current_index = filter_options.index(current_filter)
-    except ValueError:
-        current_index = 0
     
     draft_filter = st.radio(
         "Draft Status",
         filter_options,
-        index=current_index,
         horizontal=True,
         key=widget_key
     )
