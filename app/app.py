@@ -64,7 +64,7 @@ def get_config(key, default=None):
         if hasattr(st.secrets, key):
             return getattr(st.secrets, key)
             
-    except (AttributeError, KeyError, TypeError):
+    except Exception:
         pass
     
     # Fall back to environment variables or .env file
@@ -244,10 +244,62 @@ def get_my_team_players(table, draft_session_id, force_refresh=False):
         st.warning(f"Error getting my team players: {str(e)}")
         return set()
 
+@st.cache_data(ttl=3600)
+def load_percentiles(format_type, schema, s3_output, region):
+    """Load SGP percentiles from Athena, cached for 1 hour across all sessions."""
+    conn = connect(
+        s3_staging_dir=s3_output,
+        region_name=region,
+        schema_name=schema,
+        cursor_class=PandasCursor
+    )
+    query = f"""
+    WITH filename_parts AS (
+        SELECT 
+            _filename,
+            category,
+            p80,
+            p90,
+            split_part(_filename, ' ', 2) as format_part,
+            cast(split_part(_filename, ' ', 3) as int) as year_part
+        FROM {schema}.mart_sgp_percentiles
+    )
+    SELECT 
+        category,
+        p80,
+        p90
+    FROM filename_parts
+    WHERE format_part = '{format_type}'
+    AND year_part = (SELECT max(year_part) FROM filename_parts WHERE format_part = '{format_type}')
+    """
+    cursor = conn.cursor()
+    return cursor.execute(query).as_pandas()
+
+
+@st.cache_data(ttl=900)
+def load_rankings(table_name, schema, s3_output, region):
+    """Load player rankings from Athena, cached for 15 minutes across all sessions."""
+    conn = connect(
+        s3_staging_dir=s3_output,
+        region_name=region,
+        schema_name=schema,
+        cursor_class=PandasCursor
+    )
+    columns_needed = [
+        'id', 'name', 'team', 'pos', 'rank', 'adp', 'min_pick', 'max_pick',
+        'rank_diff', 'projected_opening_day_status', 'value',
+        'pa', 'ab', 'r', 'hr', 'rbi', 'sb', 'avg', 'obp', 'slg',
+        'ip', 'k', 'w', 'sv', 'era', 'whip'
+    ]
+    columns_str = ', '.join(columns_needed)
+    query = f"SELECT {columns_str} FROM {schema}.{table_name} ORDER BY rank"
+    cursor = conn.cursor()
+    df = cursor.execute(query).as_pandas()
+    return optimize_dataframe_memory(df)
+
+
 def optimize_dataframe_memory(df):
     """Optimize DataFrame memory usage by converting to efficient dtypes"""
-    df = df.copy()  # Work on a copy to avoid modifying original
-    
     # Convert string columns to category (much more memory efficient)
     # Be more aggressive - convert if less than 70% unique (was 50%)
     for col in df.columns:
@@ -387,8 +439,9 @@ if cache_key not in st.session_state:
 # Refresh button to clear cache and reload data
 refresh_button = st.button("🔄 Refresh Data", help="Clear cached data and reload from Athena")
 
-# If refresh button clicked, clear the cache and recalculate pick counter
+# If refresh button clicked, clear both caches and recalculate pick counter
 if refresh_button:
+    load_rankings.clear()
     st.session_state[cache_key] = None
     st.session_state[timestamp_key] = None
     # Recalculate pick counter from DynamoDB to sync with other devices
@@ -406,39 +459,10 @@ if refresh_button:
 if st.session_state[cache_key] is None:
     with st.spinner("Loading data from Athena..."):
         try:
-            # Connect to Athena
-            conn = connect(
-                s3_staging_dir=ATHENA_S3_OUTPUT,
-                region_name=ATHENA_REGION,
-                schema_name=ATHENA_SCHEMA,
-                cursor_class=PandasCursor
-            )
-            
-            # Select only columns we actually use (memory optimization)
-            # This reduces memory usage significantly compared to SELECT *
-            columns_needed = [
-                'id', 'name', 'team', 'pos', 'rank', 'adp', 'min_pick', 'max_pick', 
-                'rank_diff', 'projected_opening_day_status', 'value', 
-                'pa', 'ab', 'r', 'hr', 'rbi', 'sb', 'avg', 'obp', 'slg', 
-                'ip', 'k', 'w', 'sv', 'era', 'whip'
-            ]
-            columns_str = ', '.join(columns_needed)
-            query = f"SELECT {columns_str} FROM {ATHENA_SCHEMA}.{table_name} ORDER BY rank"
-            
-            # Execute query and get results as pandas DataFrame
-            cursor = conn.cursor()
-            df = cursor.execute(query).as_pandas()
-            
-            # Optimize memory usage before caching
-            df = optimize_dataframe_memory(df)
-            
-            # Store in session_state (this is the caching part!)
-            # Next time the page reruns, this data will still be here
+            df = load_rankings(table_name, ATHENA_SCHEMA, ATHENA_S3_OUTPUT, ATHENA_REGION)
             st.session_state[cache_key] = df
             st.session_state[timestamp_key] = datetime.now()
-            
             st.success(f"Loaded {len(df)} players from Athena!")
-            
         except Exception as e:
             st.error(f"Error loading data: {str(e)}")
             st.info("""
@@ -487,7 +511,6 @@ def render_filters_and_apply(df, draft_table, draft_session_id):
             selected_positions = st.multiselect(
                 "Position (can select multiple)", 
                 positions_list,
-                default=st.session_state[widget_key],
                 help="Select one or more positions. Shows players who have ANY of these positions.",
                 key=widget_key
             )
@@ -508,7 +531,6 @@ def render_filters_and_apply(df, draft_table, draft_session_id):
             selected_teams = st.multiselect(
                 "Team (can select multiple)", 
                 teams,
-                default=st.session_state[widget_key],
                 help="Select one or more teams. Shows players from ANY of these teams.",
                 key=widget_key
             )
@@ -529,7 +551,6 @@ def render_filters_and_apply(df, draft_table, draft_session_id):
             selected_statuses = st.multiselect(
                 "Opening Day Status (can select multiple)",
                 statuses,
-                default=st.session_state[widget_key],
                 help="Select one or more opening day statuses. Shows players with ANY of these statuses.",
                 key=widget_key
             )
@@ -547,7 +568,6 @@ def render_filters_and_apply(df, draft_table, draft_session_id):
         
         search_name = st.text_input(
             "Search Player Name", 
-            value=st.session_state[widget_key],
             key=widget_key
         )
         # Update our filter state from widget's session state
@@ -574,18 +594,11 @@ def render_filters_and_apply(df, draft_table, draft_session_id):
     if widget_key not in st.session_state:
         st.session_state[widget_key] = st.session_state[filter_key]['draft_filter']
     
-    # Get index for current value
-    current_filter = st.session_state[widget_key]
     filter_options = ["All", "Drafted Only", "Undrafted Only", "My Team Only"]
-    try:
-        current_index = filter_options.index(current_filter)
-    except ValueError:
-        current_index = 0
     
     draft_filter = st.radio(
         "Draft Status",
         filter_options,
-        index=current_index,
         horizontal=True,
         key=widget_key
     )
@@ -593,7 +606,7 @@ def render_filters_and_apply(df, draft_table, draft_session_id):
     st.session_state[filter_key]['draft_filter'] = st.session_state[widget_key]
     
     # Apply filters to the dataframe
-    filtered_df = df.copy()
+    filtered_df = df
     
     # Filter by position
     if selected_positions and 'pos' in filtered_df.columns:
@@ -850,44 +863,13 @@ if st.session_state[cache_key] is not None:
         
         # TEAM STATS COMPARISON CHART
         # Get players on my team (use full dataset, not filtered - team stats should always show regardless of filters)
-        my_team_df = df[df.get('My Team', False) == True].copy() if 'My Team' in df.columns else pd.DataFrame()
+        my_team_df = df[df.get('My Team', False) == True] if 'My Team' in df.columns else pd.DataFrame()
         
         if len(my_team_df) > 0:
             st.subheader("My Team Stats vs Percentiles")
             
             try:
-                # Query percentiles table to get the right format and max year
-                conn = connect(
-                    s3_staging_dir=ATHENA_S3_OUTPUT,
-                    region_name=ATHENA_REGION,
-                    schema_name=ATHENA_SCHEMA,
-                    cursor_class=PandasCursor
-                )
-                
-                # Get percentiles for the selected format and max year
-                percentiles_query = f"""
-                WITH filename_parts AS (
-                    SELECT 
-                        _filename,
-                        category,
-                        p80,
-                        p90,
-                        -- Extract format (after first space) and year (after second space)
-                        split_part(_filename, ' ', 2) as format_part,
-                        cast(split_part(_filename, ' ', 3) as int) as year_part
-                    FROM {ATHENA_SCHEMA}.mart_sgp_percentiles
-                )
-                SELECT 
-                    category,
-                    p80,
-                    p90
-                FROM filename_parts
-                WHERE format_part = '{format_type}'
-                AND year_part = (SELECT max(year_part) FROM filename_parts WHERE format_part = '{format_type}')
-                """
-                
-                cursor = conn.cursor()
-                percentiles_df = cursor.execute(percentiles_query).as_pandas()
+                percentiles_df = load_percentiles(format_type, ATHENA_SCHEMA, ATHENA_S3_OUTPUT, ATHENA_REGION)
                 
                 if len(percentiles_df) > 0:
                     # Aggregate my team stats
@@ -1063,7 +1045,7 @@ if st.session_state[cache_key] is not None:
         
         # Only include columns that exist in the dataframe
         available_columns = [col for col in desired_columns if col in filtered_df.columns]
-        display_df = filtered_df[available_columns].copy()
+        display_df = filtered_df[available_columns]
         
         # Limit the display dataframe only (not the underlying filtered_df used for charts/calculations)
         # This way charts, team stats, and filtering still work with all data
