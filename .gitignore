@@ -2,6 +2,7 @@
 target/
 dbt_packages/
 logs/
+data/
 
 # Python
 __pycache__/
