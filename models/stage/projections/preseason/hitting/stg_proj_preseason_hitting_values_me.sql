@@ -14,7 +14,7 @@ with base as (
 ),
 
 dollars as (
-    select ((15 * 260 * 0.67) - (15 * 14)) / sum(sgpar) as dollars_per_sgp
+    select ((15 * 260 * 0.63) - (15 * 14)) / sum(sgpar) as dollars_per_sgp
     from base
     where sgpar > 0
 )
