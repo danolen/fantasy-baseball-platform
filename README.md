@@ -1,8 +1,65 @@
-# My Fantasy Baseball Lakehouse & Draft Tool
+# Fantasy Baseball Platform
 
-## Overview
+A personal data lakehouse and analytics platform for fantasy baseball draft preparation and in-season decision making. Built with dbt, Streamlit, and AWS.
 
-This is a personal data lakehouse and analytics platform built to support my fantasy baseball draft preparation and in-season decision making. Currently built out is a set of draft-ready player rankings and valuations, while the longer-term goal is to grow this into a full end-to-end analytics application with automation, orchestration, and an interactive user interface. This project supports just one engineer/analyst right now (myself), but is designed to be able to scale to support a small team of engineers and analysts, while remaining cost-efficient and lightweight enough for personal use.
+---
+
+## Repository Structure
+
+| Directory | Description |
+|-----------|-------------|
+| [`dbt/`](dbt/) | dbt project -- Iceberg tables in Athena using a medallion architecture (source / stage / main) |
+| [`apps/draft-tool/`](apps/draft-tool/) | Streamlit draft tool -- player rankings, projected stats, real-time draft tracking via DynamoDB |
+| [`utils/`](utils/) | Utility scripts for data operations (e.g., S3 uploads) |
+
+---
+
+## Architecture
+
+### Storage
+- **Amazon S3** with `year=YYYY/month=MM/day=DD/` partitioning
+
+### Data Architecture
+- Lakehouse on **Amazon Athena** with external tables over raw CSV/TSV files
+- All source fields are strings; type casting and normalization happen in dbt
+- Logical partitioning by ingestion date
+
+### Transformation (`dbt/`)
+- dbt creates **Iceberg** tables in Athena
+- Medallion-style layers:
+  - **Source** -- select from external tables, add partition fields, filter to current data
+  - **Stage** -- intermediate transformations not exposed to downstream consumers
+  - **Main** -- consumption-ready tables for BI tools and apps
+
+### Draft Tool (`apps/draft-tool/`)
+- **Streamlit** web app deployed to Streamlit Community Cloud
+- Player rankings and valuations across contest formats
+- Real-time filtering, sorting, and ADP charts
+- Draft tracking persisted in **Amazon DynamoDB**
+- Mobile- and desktop-friendly
+
+### Access Control
+- AWS IAM roles
+
+---
+
+## Getting Started
+
+### dbt
+
+Run dbt from the `dbt/` directory:
+```bash
+cd dbt
+dbt build
+```
+
+### Streamlit apps
+
+See [`apps/draft-tool/README.md`](apps/draft-tool/README.md) for full setup, configuration, and deployment instructions. Quick start:
+```bash
+./setup.sh                              # creates venv, installs dependencies
+streamlit run apps/draft-tool/app.py    # starts the draft tool locally
+```
 
 ---
 
@@ -18,67 +75,14 @@ Although the current dataset is small, the architecture is designed to scale nat
 
 ---
 
-## Current Architecture
+## Planned Enhancements
 
-### Data extraction
-- Files downloaded locally. Automation of this process typically violates the Terms & Conditions of the data providers in use.
-- Planned future enhancement: Automate extraction of data where allowed
-  - Expected tools: Python + Airflow (or similar)
-
-### Storage
-- Amazon S3, with year=YYYY/month=MM/day=DD/ partioning logic
-
-### Data Architecture
-- Lakehouse in Athena
-- External tables defined from raw CSV/TSV files
-- All fields are defined as strings, with type casting and normalization handled downstream by dbt
-- Partitioning is logical, based on ingestion date, rather than physical, simplifying refreshes
-
-### Transformation
-- dbt creates Iceberg tables in Athena
-- Medallion-style architecture
-  - Source models: Select all columns from external table, add any necessary partition fields, filter to only necessary data
-    - Filtering thought process: Even though I may still want to analyze old data later, I only want to surface the most current, up-to-date data for my end product
-  - Stage models: Perform any transformations needed to create intermediary tables that should **not** be exposed to future BI tools/apps/analysis
-  - Main models: These are the end-product tables that are meant to be consumed by BI tools and apps
-- Planned future enhancements:
-  - Make further use of incremental materializations
-  - Add tests and documentation
-  - Make use of variables and macros to make project more modular
-  - Simplify model lineage
- 
-### Draft Tool Application
-- Used **Streamlit** to create a web app to be used in a draft
-- Mobile- and desktop-friendly interface
-- Includes all of my player rankings and valuations for various fantasy baseball contest formats, including projected player stats
-- Real-time filtering and sorting
-- Access anywhere
-- Track which players have/haven't been drafted
-  - Use **Amazon DynamoDB** to track and update the drafted status of a player with the click of a button
-  - Decouple player drafted status from analytical data
- 
-### Access control
-- IAM roles
-
-### Version Control
-- Github
-
----
-
-## Planned future enhancements
-
-### In-Season Tools
-- Another **Streamlit** web app to help with player add/drop decisions, lineup optimization, etc.
-
-### Orchestration
-- **Apache Airflow** (or similar)
-  - Automate ingestion tasks, dbt builds, app refreshes
-  - Support for scheduled and manual ad-hoc refresh workflows
-  - Likely to use AWS MWAA or lightweight alternatives, or may start with dbt Cloud orchestration jobs or GitHub Actions
+- **In-season tools** -- Streamlit app in `apps/in-season-tool/` for add/drop decisions, lineup optimization
+- **Orchestration** -- Airflow (or similar) for ingestion, dbt builds, and app refreshes
+- **dbt improvements** -- incremental materializations, tests, documentation, macros
 
 ---
 
 ## Disclaimer
 
-This project is mainly for personal use and learning purposes. All data sources are accessed via legitimate paid subscriptions if data is not freely available, and are not redistributed.
-
+This project is for personal use and learning. All data sources are accessed via legitimate paid subscriptions where required and are not redistributed.

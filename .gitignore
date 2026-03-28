@@ -1,8 +1,11 @@
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
 
-target/
-dbt_packages/
-logs/
+# Local data
 data/
+context/
 
 # Python
 __pycache__/
