@@ -8,3 +8,6 @@ sources:
       - name: projections_preseason
         external:
           location: s3://dn-lakehouse-dev/ftn/projections/preseason/hitting_and_pitching/
+      - name: faab
+        external:
+          location: s3://dn-lakehouse-dev/ftn/faab/
