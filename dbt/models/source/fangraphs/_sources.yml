@@ -16,7 +16,7 @@ sources:
           location: s3://dn-lakehouse-dev/fangraphs/rosters/
       - name: projections_rest_of_season_hitting
         external:
-          location: s3://dn-lakehouse-dev/fangraphs/projections/rest_of_season/hitting/
+          location: s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/hitting/
       - name: projections_rest_of_season_pitching
         external:
-          location: s3://dn-lakehouse-dev/fangraphs/projections/rest_of_season/pitching/
+          location: s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/pitching/
