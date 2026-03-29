@@ -11,3 +11,9 @@ sources:
       - name: projections_preseason_pitching
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/preseason/pitching/
+      - name: projections_weekly_hitting
+        external:
+          location: s3://dn-lakehouse-dev/razzball/projections/weekly/hitting/
+      - name: projections_weekly_pitching
+        external:
+          location: s3://dn-lakehouse-dev/razzball/projections/weekly/pitching/

@@ -14,3 +14,6 @@ sources:
       - name: adp
         external:
           location: s3://dn-lakehouse-dev/nfbc/adp/
+      - name: in_season_players
+        external:
+          location: s3://dn-lakehouse-dev/nfbc/in-season-players/
