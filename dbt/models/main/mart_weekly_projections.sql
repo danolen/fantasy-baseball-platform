@@ -29,9 +29,27 @@ select
     cast(coalesce(hit.roster_pct, pitch.roster_pct) as int) roster_pct,
     cast(coalesce(hit.ros12_dollars_per_game, pitch.ros12_dollars_per_game) as double) ros12_dollars_per_game,
     cast(coalesce(hit.rfs12, pitch.rfs12) as int) rfs12,
-    cast(coalesce(hit.rfs15, pitch.rfs15) as int) rfs15
+    cast(coalesce(hit.rfs15, pitch.rfs15) as int) rfs15,
+    p50.value pre_szn_50,
+    poc.value pre_szn_oc,
+    pme.value pre_szn_me,
+    r50.value ros_50,
+    roc.value ros_oc,
+    rme.value ros_me
 from {{ ref('src_nfbc_in_season_players') }} nfbc
 left join {{ ref('src_razzball_projections_weekly_hitting') }} hit
     on nfbc.id = hit.nfbcid
 left join {{ ref('src_razzball_projections_weekly_pitching') }} pitch
     on nfbc.id = pitch.nfbcid
+left join {{ ref('mart_preseason_overall_rankings_50s') }} p50
+    on nfbc.id = p50.id
+left join {{ ref('mart_preseason_overall_rankings_oc') }} poc
+    on nfbc.id = poc.id
+left join {{ ref('mart_preseason_overall_rankings_me') }} pme
+    on nfbc.id = pme.id
+left join {{ ref('mart_rest_of_season_overall_rankings_50s') }} r50
+    on nfbc.id = r50.id
+left join {{ ref('mart_rest_of_season_overall_rankings_oc') }} roc
+    on nfbc.id = roc.id
+left join {{ ref('mart_rest_of_season_overall_rankings_me') }} rme
+    on nfbc.id = rme.id
