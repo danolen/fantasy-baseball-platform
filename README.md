@@ -43,26 +43,6 @@ A personal data lakehouse and analytics platform for fantasy baseball draft prep
 
 ---
 
-## Getting Started
-
-### dbt
-
-Run dbt from the `dbt/` directory:
-```bash
-cd dbt
-dbt build
-```
-
-### Streamlit apps
-
-See [`apps/draft-tool/README.md`](apps/draft-tool/README.md) for full setup, configuration, and deployment instructions. Quick start:
-```bash
-./setup.sh                              # creates venv, installs dependencies
-streamlit run apps/draft-tool/app.py    # starts the draft tool locally
-```
-
----
-
 ## Goals & Motivation
 
 - Build hands-on experience with **lakehouse architecture**
