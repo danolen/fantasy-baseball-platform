@@ -1,0 +1,104 @@
+{{
+    config(
+        materialized='table'
+    )
+}}
+
+-- Column names reference the Glue table for source('ftn', 'faab').
+-- Expected mapping from FTN CSV headers:
+--   "Player"                → player
+--   "Position"              → position
+--   "Team"                  → team
+--   "Own%"                  → own_pct
+--   "Type"                  → type
+--   "Low Bid"               → low_bid
+--   "High Bid"              → high_bid
+--   "Notes / SP Matchups"   → notes_sp_matchups
+-- Adjust column names below if your Glue catalog uses different names.
+
+with ftn_step1 as (
+    select
+        player,
+        position,
+        team,
+        own_pct,
+        type,
+        low_bid,
+        high_bid,
+        notes_sp_matchups,
+        _filename,
+        _ptkey,
+        regexp_extract(player, '\s+-\s+(raised|lowered|reduced)\s*$', 1) as bid_change,
+        regexp_replace(player, '\s+-\s+(raised|lowered|reduced)\s*$', '') as name_after_bid_strip
+    from {{ ref('src_ftn_faab') }}
+),
+
+ftn_cleaned as (
+    select
+        player as player_raw,
+        bid_change,
+        regexp_extract(name_after_bid_strip, '\(([^)]+)\)\s*$', 1) as status_tag,
+        trim(regexp_replace(name_after_bid_strip, '\s*\([^)]*\)\s*$', '')) as player_clean,
+        position,
+        team,
+        cast(nullif(own_pct, '') as int) as own_pct,
+        type,
+        cast(nullif(low_bid, '') as int) as low_bid,
+        cast(nullif(high_bid, '') as int) as high_bid,
+        notes_sp_matchups,
+        cast(regexp_extract(_filename, '(\d+)\s*[Tt]eam', 1) as int) as league_size,
+        _ptkey
+    from ftn_step1
+),
+
+ftn_keyed as (
+    select *,
+        lower(replace(player_clean, '.', '')) as match_key
+    from ftn_cleaned
+),
+
+nfbc_keyed as (
+    select
+        id as nfbc_id,
+        lower(replace(
+            concat(
+                trim(split_part(players, ', ', 2)),
+                ' ',
+                trim(split_part(players, ', ', 1))
+            ),
+            '.', ''
+        )) as match_key,
+        team as nfbc_team
+    from {{ ref('src_nfbc_players') }}
+),
+
+overrides as (
+    select
+        ftn_player,
+        ftn_team,
+        cast(nfbc_id as varchar) as nfbc_id
+    from {{ ref('ftn_nfbc_player_overrides') }}
+)
+
+select
+    coalesce(ovr.nfbc_id, nfbc.nfbc_id) as nfbc_id,
+    ftn.player_raw,
+    ftn.player_clean,
+    ftn.bid_change,
+    ftn.status_tag,
+    ftn.position,
+    ftn.team,
+    ftn.own_pct,
+    ftn.type,
+    ftn.low_bid,
+    ftn.high_bid,
+    ftn.notes_sp_matchups,
+    ftn.league_size,
+    ftn._ptkey
+from ftn_keyed ftn
+left join nfbc_keyed nfbc
+    on ftn.match_key = nfbc.match_key
+    and ftn.team = nfbc.nfbc_team
+left join overrides ovr
+    on ftn.player_clean = ovr.ftn_player
+    and ftn.team = ovr.ftn_team
