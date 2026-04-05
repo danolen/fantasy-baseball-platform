@@ -16,7 +16,7 @@
 --   "Notes / SP Matchups"   → notes_sp_matchups
 -- Adjust column names below if your Glue catalog uses different names.
 
-with ftn_step1 as (
+with ftn_raw as (
     select
         player,
         position,
@@ -28,14 +28,45 @@ with ftn_step1 as (
         notes_sp_matchups,
         _filename,
         _ptkey,
-        regexp_extract(player, '\s+-\s+(raised|lowered|reduced)\s*$', 1) as bid_change,
-        regexp_replace(player, '\s+-\s+(raised|lowered|reduced)\s*$', '') as name_after_bid_strip
+        -- Extract bid direction from emojis before stripping them
+        case
+            when regexp_like(player, '\x{2B06}') then 'raised'
+            when regexp_like(player, '\x{2B07}') then 'lowered'
+            when regexp_like(player, '\x{1F195}') then 'new'
+        end as emoji_bid_change,
+        -- Strip non-Latin characters (emojis, variation selectors, symbols)
+        -- and asterisks, then collapse runs of whitespace
+        regexp_replace(
+            trim(replace(regexp_replace(player, '[^\x{0020}-\x{024F}]', ''), '*', '')),
+            '\s{2,}', ' '
+        ) as player_sanitized
     from {{ ref('src_ftn_faab') }}
+),
+
+ftn_step1 as (
+    select
+        player as player_raw,
+        player_sanitized,
+        coalesce(
+            emoji_bid_change,
+            regexp_extract(player_sanitized, '\s+-\s+(raised|lowered|reduced)\s*$', 1)
+        ) as bid_change,
+        regexp_replace(player_sanitized, '\s+-\s+(raised|lowered|reduced)\s*$', '') as name_after_bid_strip,
+        position,
+        team,
+        own_pct,
+        type,
+        low_bid,
+        high_bid,
+        notes_sp_matchups,
+        _filename,
+        _ptkey
+    from ftn_raw
 ),
 
 ftn_cleaned as (
     select
-        player as player_raw,
+        player_raw,
         bid_change,
         regexp_extract(name_after_bid_strip, '\(([^)]+)\)\s*$', 1) as status_tag,
         trim(regexp_replace(name_after_bid_strip, '\s*\([^)]*\)\s*$', '')) as player_clean,
@@ -53,20 +84,26 @@ ftn_cleaned as (
 
 ftn_keyed as (
     select *,
-        lower(replace(player_clean, '.', '')) as match_key
+        lower(regexp_replace(
+            normalize(replace(player_clean, '.', ''), NFD),
+            '[\x{0300}-\x{036F}]', ''
+        )) as match_key
     from ftn_cleaned
 ),
 
 nfbc_keyed as (
     select
         id as nfbc_id,
-        lower(replace(
-            concat(
-                trim(split_part(players, ', ', 2)),
-                ' ',
-                trim(split_part(players, ', ', 1))
-            ),
-            '.', ''
+        lower(regexp_replace(
+            normalize(replace(
+                concat(
+                    trim(split_part(players, ', ', 2)),
+                    ' ',
+                    trim(split_part(players, ', ', 1))
+                ),
+                '.', ''
+            ), NFD),
+            '[\x{0300}-\x{036F}]', ''
         )) as match_key,
         team as nfbc_team
     from {{ ref('src_nfbc_players') }}
