@@ -7,7 +7,6 @@ and weekly projections for NFBC league management.
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import os
 from pyathena import connect
 from pyathena.pandas.cursor import PandasCursor
@@ -144,7 +143,11 @@ selected_positions = st.sidebar.multiselect("Position", all_positions, default=a
 all_types = sorted(df.loc[df["has_ftn_rec"] == 1, "ftn_type"].dropna().unique().tolist())
 selected_types = st.sidebar.multiselect("FTN Type", all_types, default=all_types)
 
-hide_owned = st.sidebar.checkbox("Hide owned players", value=True)
+FREE_AGENT = "Free Agent"
+owner_values = sorted(df["owner"].dropna().loc[df["owner"] != ""].unique().tolist())
+owner_options = [FREE_AGENT] + owner_values
+selected_owners = st.sidebar.multiselect("Owner", owner_options, default=[FREE_AGENT])
+
 search = st.sidebar.text_input("Search player")
 
 # ---------------------------------------------------------------------------
@@ -163,8 +166,10 @@ if selected_positions:
 if selected_types and ftn_only:
     mask &= df["ftn_type"].isin(selected_types)
 
-if hide_owned:
-    mask &= df["owner"].isna() | (df["owner"] == "")
+if selected_owners:
+    is_free_agent = df["owner"].isna() | (df["owner"] == "")
+    is_selected_owner = df["owner"].isin([o for o in selected_owners if o != FREE_AGENT])
+    mask &= (is_free_agent if FREE_AGENT in selected_owners else False) | is_selected_owner
 
 if search:
     mask &= df["player"].str.contains(search, case=False, na=False)
@@ -175,24 +180,16 @@ display = df.loc[mask]
 # Build display table
 # ---------------------------------------------------------------------------
 
-player_label = display["player"].fillna("")
-status = display["status_tag"].fillna("")
-bid_chg = display["bid_change"].fillna("")
-player_label = np.where(status != "", player_label + " (" + status + ")", player_label)
-player_label = np.where(
-    bid_chg != "",
-    player_label + np.where(bid_chg == "raised", " ↑", " ↓"),
-    player_label,
-)
-
 COLUMNS = {
-    "player_label": "Player",
+    "player": "Player",
     "position": "Pos",
     "team": "Team",
     "ftn_type": "Type",
     "low_bid": "Low $",
     "high_bid": "High $",
     "ros_value": "RoS $",
+    "rfs12": "RFS12",
+    "rfs15": "RFS15",
     "dollars": "Wk $",
     "dollars_per_game": "Wk $/G",
     "num_g": "G",
@@ -204,21 +201,18 @@ COLUMNS = {
     "ftn_notes": "Notes",
 }
 
-visible = {k: v for k, v in COLUMNS.items() if k in display.columns or k == "player_label"}
+sort_cols = [c for c in ["has_ftn_rec", "high_bid", "ros_value"] if c in display.columns]
+if sort_cols:
+    display = display.sort_values(sort_cols, ascending=[False] * len(sort_cols), na_position="last")
+
+visible = {k: v for k, v in COLUMNS.items() if k in display.columns}
 out = display[[c for c in visible if c in display.columns]].copy()
-out.insert(0, "player_label", player_label)
 
 for col in ("ros_value", "dollars", "dollars_per_game", "dollars_monday_thursday", "dollars_friday_sunday"):
     if col in out.columns:
-        out[col] = pd.to_numeric(out[col], errors="coerce").round(1)
+        out[col] = out[col].round(1)
 
-out = out.sort_values(
-    ["has_ftn_rec", "high_bid", "ros_value"],
-    ascending=[False, False, False],
-    na_position="last",
-)
-
-out = out[[c for c in visible if c in out.columns]].rename(columns=visible)
+out = out.rename(columns=visible)
 
 # ---------------------------------------------------------------------------
 # Main display
