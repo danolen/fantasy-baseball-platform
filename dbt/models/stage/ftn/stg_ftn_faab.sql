@@ -93,7 +93,7 @@ ftn_keyed as (
 
 nfbc_keyed as (
     select
-        id as nfbc_id,
+        cast(id as varchar) as nfbc_id,
         lower(regexp_replace(
             normalize(replace(
                 concat(
