@@ -111,8 +111,8 @@ nfbc_keyed as (
 
 overrides as (
     select
-        ftn_player,
-        ftn_team,
+        cast(ftn_player as varchar) as ftn_player,
+        cast(ftn_team as varchar) as ftn_team,
         cast(nfbc_id as varchar) as nfbc_id
     from {{ ref('ftn_nfbc_player_overrides') }}
 )
