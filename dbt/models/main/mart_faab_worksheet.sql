@@ -28,7 +28,7 @@ ftn_by_league as (
         ftn.type as ftn_type,
         ftn.low_bid,
         ftn.high_bid,
-        ftn.notes as ftn_notes,
+        ftn.notes_sp_matchups as ftn_notes,
         ftn.bid_change,
         ftn.status_tag,
         lc.league
