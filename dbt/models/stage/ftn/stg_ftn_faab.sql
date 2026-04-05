@@ -72,10 +72,10 @@ ftn_cleaned as (
         trim(regexp_replace(name_after_bid_strip, '\s*\([^)]*\)\s*$', '')) as player_clean,
         position,
         team,
-        cast(nullif(own_pct, '') as int) as own_pct,
+        own_pct,
         type,
-        cast(nullif(low_bid, '') as int) as low_bid,
-        cast(nullif(high_bid, '') as int) as high_bid,
+        low_bid,
+        high_bid,
         notes_sp_matchups,
         cast(regexp_extract(_filename, '(\d+)\s*[Tt]eam', 1) as int) as league_size,
         _ptkey
