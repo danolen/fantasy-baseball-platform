@@ -53,3 +53,8 @@ left join {{ ref('mart_rest_of_season_overall_rankings_oc') }} roc
     on nfbc.id = roc.id
 left join {{ ref('mart_rest_of_season_overall_rankings_me') }} rme
     on nfbc.id = rme.id
+where hit.nfbcid is not null
+    or pitch.nfbcid is not null
+    or r50.id is not null
+    or roc.id is not null
+    or rme.id is not null
