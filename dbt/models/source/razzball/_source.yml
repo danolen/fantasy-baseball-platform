@@ -17,3 +17,6 @@ sources:
       - name: projections_weekly_pitching
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/weekly/pitching/
+      - name: projections_weekly_weekend_hitting
+        external:
+          location: s3://dn-lakehouse-dev/razzball/projections/weekly/weekend_hitting/
