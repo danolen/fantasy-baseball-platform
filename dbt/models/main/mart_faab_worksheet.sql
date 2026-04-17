@@ -7,6 +7,10 @@
 with league_config as (
     select
         league,
+        -- ftn_league_size is null for draft-and-hold leagues (nolen_50).
+        -- dbt-athena loads the seed column as integer, so empty CSV cells
+        -- arrive as SQL NULL; the inner join to stg_ftn_faab below drops
+        -- those rows naturally so no FAAB data gets attached.
         cast(ftn_league_size as int) as ftn_league_size,
         format
     from {{ ref('league_config') }}
@@ -65,6 +69,7 @@ select
     cast(case wp.format
         when 'oc' then wp.ros_oc
         when 'me' then wp.ros_me
+        when '50s' then wp.ros_50
     end as double) as ros_value,
     ftn.ftn_type,
     cast(ftn.low_bid as int) as low_bid,
