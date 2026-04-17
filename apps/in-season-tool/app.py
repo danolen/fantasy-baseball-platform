@@ -309,11 +309,28 @@ with tab_lineup:
         st.warning("No owners found in the lineup inputs mart.")
         st.stop()
 
-    selected_owner = st.selectbox(
-        "Owner (team to optimize)",
-        owner_options,
-        key="lineup_owner",
-    )
+    col_a, col_b = st.columns([2, 3])
+    with col_a:
+        selected_owner = st.selectbox(
+            "Owner (team to optimize)",
+            owner_options,
+            key="lineup_owner",
+        )
+    with col_b:
+        lock_period = st.radio(
+            "Lock period",
+            ["Mon–Thu (Monday lock)", "Fri–Sun (Friday lock)"],
+            horizontal=True,
+            key="lineup_lock_period",
+            help=(
+                "Mon–Thu scores hitters on `dollars_monday_thursday` from "
+                "the weekly Razzball file. Fri–Sun scores on "
+                "`weekend_dollars` from the dedicated weekend Hittertron."
+            ),
+        )
+
+    is_weekend = lock_period.startswith("Fri")
+    score_key = "weekend_dollars" if is_weekend else "dollars_monday_thursday"
 
     fmt = lineup_df["format"].dropna().iloc[0]
     week_of = (
@@ -345,6 +362,19 @@ with tab_lineup:
         st.warning(f"No players rostered to `{selected_owner}`.")
         st.stop()
 
+    if is_weekend and "weekend_dollars" in team.columns:
+        has_weekend = team["weekend_dollars"].notna().any()
+        if not has_weekend:
+            st.warning(
+                "No weekend (Fri–Sun) projections found for this team. "
+                "Upload `hittertron.csv` from Razzball's weekend page to "
+                "`s3://.../razzball/projections/weekly/weekend_hitting/"
+                "year=YYYY/month=MM/day=DD/` and rebuild "
+                "`mart_weekly_lineup_inputs`. Falling back to "
+                "`dollars_friday_sunday` (split of the weekly file) for now."
+            )
+            score_key = "dollars_friday_sunday"
+
     # Derive pos_array from pos_raw (plain comma-separated string) rather
     # than trusting the Athena array column — pyathena serializes arrays as
     # strings like "[C, 1B]" which breaks naive comma splits.
@@ -357,14 +387,15 @@ with tab_lineup:
 
     players = team.to_dict(orient="records")
 
-    result = optimize_lineup(players, slot_counts)
+    result = optimize_lineup(players, slot_counts, score_key=score_key)
 
     active_capacity = sum(slot_counts.values())
+    score_label = "Fri–Sun $" if is_weekend else "Mon–Thu $"
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Week Of", str(week_of))
     c2.metric("Team Hitters", len(team))
     c3.metric("Active Slots", active_capacity)
-    c4.metric("Projected $", f"{result.total_score:.1f}")
+    c4.metric(f"Projected {score_label}", f"{result.total_score:.1f}")
 
     if result.unfilled_slots:
         st.warning(
@@ -372,21 +403,59 @@ with tab_lineup:
             + ", ".join(result.unfilled_slots)
         )
 
-    starter_cols = [
-        "slot",
-        "player_name",
-        "team",
-        "pos_raw",
-        "bats",
-        "num_g",
-        "dollars",
-        "dollars_per_game",
-        "home_games",
-        "away_games",
-        "vs_rhp",
-        "vs_lhp",
-        "ros_value",
-    ]
+    # Column sets intentionally differ by lock period so the on-screen
+    # numbers match the scoring rule driving the greedy choice.
+    if is_weekend:
+        context_cols = [
+            "weekend_num_g",
+            "weekend_dollars",
+            "weekend_home_games",
+            "weekend_away_games",
+            "weekend_vs_rhp",
+            "weekend_vs_lhp",
+            "weekend_opp",
+            "weekend_sp_raw",
+            "ros_value",
+        ]
+        col_rename = {
+            "weekend_num_g": "G",
+            "weekend_dollars": "F-Su $",
+            "weekend_home_games": "H",
+            "weekend_away_games": "A",
+            "weekend_vs_rhp": "vR",
+            "weekend_vs_lhp": "vL",
+            "weekend_opp": "Opp",
+            "weekend_sp_raw": "SP Matchups",
+            "ros_value": "RoS $",
+        }
+        round_cols = ("weekend_dollars", "ros_value")
+        sort_score_col = "weekend_dollars"
+    else:
+        context_cols = [
+            "num_g",
+            "dollars_monday_thursday",
+            "home_games",
+            "away_games",
+            "vs_rhp",
+            "vs_lhp",
+            "opps",
+            "ros_value",
+        ]
+        col_rename = {
+            "num_g": "G",
+            "dollars_monday_thursday": "M-Th $",
+            "home_games": "H",
+            "away_games": "A",
+            "vs_rhp": "vR",
+            "vs_lhp": "vL",
+            "opps": "Matchups",
+            "ros_value": "RoS $",
+        }
+        round_cols = ("dollars_monday_thursday", "ros_value")
+        sort_score_col = "dollars_monday_thursday"
+
+    base_cols = ["player_name", "team", "pos_raw", "bats"]
+    starter_cols = ["slot"] + base_cols + context_cols
 
     starters_records = []
     slot_order_index = {s: i for i, s in enumerate(SLOT_DISPLAY_ORDER)}
@@ -399,98 +468,70 @@ with tab_lineup:
     starters_df = pd.DataFrame(starters_records, columns=starter_cols)
     starters_df["_slot_order"] = starters_df["slot"].map(slot_order_index).fillna(99)
     starters_df = (
-        starters_df.sort_values(["_slot_order", "dollars"], ascending=[True, False])
+        starters_df.sort_values(
+            ["_slot_order", sort_score_col], ascending=[True, False]
+        )
         .drop(columns=["_slot_order"])
         .reset_index(drop=True)
     )
 
-    for col in (
-        "dollars",
-        "dollars_per_game",
-        "ros_value",
-    ):
+    for col in round_cols:
         if col in starters_df.columns:
             starters_df[col] = pd.to_numeric(
                 starters_df[col], errors="coerce"
             ).round(1)
 
+    full_rename = {
+        "slot": "Slot",
+        "player_name": "Player",
+        "team": "Team",
+        "pos_raw": "Pos",
+        "bats": "B",
+        **col_rename,
+    }
+
     st.markdown("### Starters")
     st.dataframe(
-        starters_df.rename(
-            columns={
-                "slot": "Slot",
-                "player_name": "Player",
-                "team": "Team",
-                "pos_raw": "Pos",
-                "bats": "B",
-                "num_g": "G",
-                "dollars": "Wk $",
-                "dollars_per_game": "Wk $/G",
-                "home_games": "H",
-                "away_games": "A",
-                "vs_rhp": "vR",
-                "vs_lhp": "vL",
-                "ros_value": "RoS $",
-            }
-        ),
+        starters_df.rename(columns=full_rename),
         use_container_width=True,
         hide_index=True,
     )
 
-    bench_cols = [
-        "player_name",
-        "team",
-        "pos_raw",
-        "bats",
-        "num_g",
-        "dollars",
-        "dollars_per_game",
-        "home_games",
-        "away_games",
-        "vs_rhp",
-        "vs_lhp",
-        "ros_value",
-    ]
+    bench_cols = base_cols + context_cols
     bench_records = [
         {k: p.get(k) for k in bench_cols} for p in result.bench
     ]
     bench_df = pd.DataFrame(bench_records, columns=bench_cols)
-    for col in ("dollars", "dollars_per_game", "ros_value"):
+    for col in round_cols:
         if col in bench_df.columns:
             bench_df[col] = pd.to_numeric(bench_df[col], errors="coerce").round(1)
 
     st.markdown(f"### Bench ({len(bench_df)})")
     st.dataframe(
-        bench_df.rename(
-            columns={
-                "player_name": "Player",
-                "team": "Team",
-                "pos_raw": "Pos",
-                "bats": "B",
-                "num_g": "G",
-                "dollars": "Wk $",
-                "dollars_per_game": "Wk $/G",
-                "home_games": "H",
-                "away_games": "A",
-                "vs_rhp": "vR",
-                "vs_lhp": "vL",
-                "ros_value": "RoS $",
-            }
-        ),
+        bench_df.rename(columns=full_rename),
         use_container_width=True,
         hide_index=True,
     )
 
-    with st.expander("How this works (v1)"):
+    with st.expander("How this works (v2)"):
         st.markdown(
-            "- **Greedy Monday-lock**: for each slot in a fixed order (C, SS, "
-            "2B, 3B, 1B, OF, MI, CI, UTIL), fill with the highest full-week "
-            "`dollars` unassigned eligible hitter.\n"
-            "- **Score**: Razzball weekly $ (full Mon–Sun). v2 adds a "
-            "Friday-lock view with the weekend-only file.\n"
-            "- **Known limitation**: greedy can be suboptimal when a player "
-            "is eligible at multiple scarce slots. MILP global optimum lands "
-            "in v3.\n"
-            "- **Scope**: hitters only. Pitcher streaming / two-start planner "
-            "is Phase 1c."
+            "- **Greedy assignment**: for each slot in a fixed order (C, SS, "
+            "2B, 3B, 1B, OF, MI, CI, UTIL), fill with the highest-scoring "
+            "unassigned eligible hitter. Score source switches with the "
+            "lock-period toggle above.\n"
+            "- **Mon–Thu (Monday lock)**: scores on "
+            "`dollars_monday_thursday` from the weekly Razzball Hittertron. "
+            "Covers the 4 games you commit to at Monday lock — the last 3 "
+            "are re-optimized Friday.\n"
+            "- **Fri–Sun (Friday lock)**: scores on `weekend_dollars` from "
+            "the dedicated weekend Hittertron file (a separate projection "
+            "run with per-game SP matchups in the `SP Matchups` column, not "
+            "a split of the weekly file).\n"
+            "- **Known limitations**: greedy can be suboptimal when a player "
+            "is eligible at multiple scarce slots (MILP in v3). No "
+            "per-game platoon scoring yet — the v3 upgrade will use "
+            "`stg_razzball_weekend_sp_matchups` to weight each game "
+            "individually.\n"
+            "- **Scope**: hitters only. Pitcher streaming / two-start "
+            "planner is Phase 1c."
         )

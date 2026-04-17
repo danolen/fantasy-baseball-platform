@@ -6,12 +6,16 @@ can be unit tested and later replaced with a MILP implementation (v3) without
 changing the calling code.
 
 Inputs:
-    players: iterable of dicts with at least these keys:
-        nfbc_id (any hashable), player_name, pos_raw, pos_array (list[str]),
-        team, num_g, dollars, dollars_per_game, home_games, away_games,
-        vs_rhp, vs_lhp, bats, and one boolean-ish `is_<slot>_eligible` per
-        slot. `dollars` is the score we greedily maximize.
+    players: iterable of dicts with at least `nfbc_id`, `pos_array`, and
+        whatever dollar column is passed as `score_key`. The app currently
+        hydrates rows from mart_weekly_lineup_inputs which provides all of
+        `dollars`, `dollars_monday_thursday`, `dollars_friday_sunday`,
+        `weekend_dollars`, etc.
     slot_counts: mapping of slot name -> int (e.g. {"C": 2, "OF": 5, ...}).
+    score_key: name of the dict field to maximize. Defaults to "dollars"
+        (full Mon-Sun $). Use "dollars_monday_thursday" for the Monday
+        lock and "weekend_dollars" for the Friday lock (from the Razzball
+        weekend Hittertron file).
 
 Fill order (v1, fixed):
     Exact-position slots first (most constrained → least), then flex slots:
@@ -76,23 +80,27 @@ def _is_eligible(player: Mapping[str, Any], slot: str) -> bool:
     return any(t in pos_array for t in tokens)
 
 
-def _sort_key(player: Mapping[str, Any]) -> tuple:
-    return (
-        -float(player.get("dollars") or 0.0),
-        -float(player.get("dollars_per_game") or 0.0),
-        -int(player.get("num_g") or 0),
-        str(player.get("nfbc_id")),
-    )
+def _sort_key_factory(score_key: str):
+    def _sort_key(player: Mapping[str, Any]) -> tuple:
+        return (
+            -float(player.get(score_key) or 0.0),
+            -float(player.get("dollars_per_game") or 0.0),
+            -int(player.get("num_g") or 0),
+            str(player.get("nfbc_id")),
+        )
+    return _sort_key
 
 
 def optimize_lineup(
     players: Iterable[Mapping[str, Any]],
     slot_counts: Mapping[str, int],
+    score_key: str = "dollars",
 ) -> LineupResult:
     """Greedy assignment. Returns a LineupResult."""
     pool = [dict(p) for p in players]
     assigned: set[Any] = set()
     result = LineupResult()
+    sort_key = _sort_key_factory(score_key)
 
     for slot in SLOT_FILL_ORDER:
         needed = int(slot_counts.get(slot, 0))
@@ -102,16 +110,16 @@ def optimize_lineup(
             p for p in pool
             if p["nfbc_id"] not in assigned and _is_eligible(p, slot)
         ]
-        candidates.sort(key=_sort_key)
+        candidates.sort(key=sort_key)
         taken = candidates[:needed]
         for p in taken:
             assigned.add(p["nfbc_id"])
             result.starters.append(Assignment(slot=slot, player=p))
-            result.total_score += float(p.get("dollars") or 0.0)
+            result.total_score += float(p.get(score_key) or 0.0)
         short = needed - len(taken)
         for _ in range(short):
             result.unfilled_slots.append(slot)
 
     result.bench = [p for p in pool if p["nfbc_id"] not in assigned]
-    result.bench.sort(key=_sort_key)
+    result.bench.sort(key=sort_key)
     return result

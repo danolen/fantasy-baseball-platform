@@ -9,10 +9,12 @@
 -- Streamlit app so we have a single source of truth for optimization
 -- logic.
 --
--- Scope of v1:
+-- Scope of v2:
 --   - Hitters only (pitcher streaming is Phase 1c)
---   - Monday-lock columns (full-week $) are the primary signal; Friday
---     lock columns (weekend file) are added in v2 on a follow-up branch.
+--   - Monday-lock columns (dollars_monday_thursday) for the Mon lineup
+--   - Friday-lock columns (weekend_* from the Razzball weekend Hittertron
+--     file) for the Fri-Sun lineup. has_weekend_projection = 0 when the
+--     weekend file hasn't been uploaded yet for the current partition.
 --
 -- One row per (league, owner, nfbc_id). Free-agent pool is included so
 -- the app can offer "what if you add player X" comparisons later.
@@ -26,6 +28,26 @@ with league_formats as (
         cast(ftn_league_size as int) as ftn_league_size,
         format
     from {{ ref('league_config') }}
+),
+
+weekend as (
+    -- Razzball dedicated Fri-Sun projection file. Not a split of the
+    -- Mon-Sun file: it's a separate projection run with per-game SP
+    -- matchups in `sp`. Cast numerics defensively since the source is a
+    -- CSV external table.
+    select
+        cast(nfbcid as varchar) as nfbc_id,
+        cast(nullif(num_g, '')  as int)    as weekend_num_g,
+        cast(nullif(hg, '')     as int)    as weekend_home_games,
+        cast(nullif(ag, '')     as int)    as weekend_away_games,
+        cast(nullif(vr, '')     as int)    as weekend_vs_rhp,
+        cast(nullif(vl, '')     as int)    as weekend_vs_lhp,
+        cast(nullif(dollars, '') as double) as weekend_dollars,
+        opp  as weekend_opp,
+        sp   as weekend_sp_raw,
+        fri  as weekend_week_start_date
+    from {{ ref('src_razzball_projections_weekend_hitting') }}
+    where nfbcid is not null
 ),
 
 hitters as (
@@ -52,6 +74,15 @@ hitters as (
         wp.ros_oc,
         wp.ros_me,
         wp.ros_50,
+        wknd.weekend_num_g,
+        wknd.weekend_home_games,
+        wknd.weekend_away_games,
+        wknd.weekend_vs_rhp,
+        wknd.weekend_vs_lhp,
+        wknd.weekend_dollars,
+        wknd.weekend_opp,
+        wknd.weekend_sp_raw,
+        wknd.weekend_week_start_date,
         -- Normalize the comma-separated position string: uppercase, trim
         -- each token, collapse whitespace. NFBC uses values like
         -- "1B,OF" or "2B, SS"; we produce array ['1B','OF'] or ['2B','SS'].
@@ -60,6 +91,8 @@ hitters as (
             p -> trim(p)
         ) as pos_array
     from {{ ref('mart_weekly_projections') }} wp
+    left join weekend wknd
+        on cast(wp.id as varchar) = wknd.nfbc_id
     -- Require weekly hitting projection data. num_g populates only from
     -- the Razzball weekly hitting file, so this is the cleanest hitter
     -- filter available without re-joining source tables.
@@ -90,6 +123,20 @@ select
     cast(h.dollars_per_game as double) as dollars_per_game,
     cast(h.dollars_monday_thursday as double) as dollars_monday_thursday,
     cast(h.dollars_friday_sunday as double) as dollars_friday_sunday,
+    -- Fri-Sun projections from the dedicated weekend Hittertron file.
+    -- NULL when the weekend partition for this week hasn't been uploaded
+    -- yet; has_weekend_projection gives the app a cheap existence check.
+    h.weekend_num_g,
+    h.weekend_home_games,
+    h.weekend_away_games,
+    h.weekend_vs_rhp,
+    h.weekend_vs_lhp,
+    h.weekend_dollars,
+    h.weekend_opp,
+    h.weekend_sp_raw,
+    h.weekend_week_start_date,
+    cast(case when h.weekend_dollars is not null then 1 else 0 end as int)
+        as has_weekend_projection,
     cast(
         case lf.format
             when 'oc' then h.ros_oc
