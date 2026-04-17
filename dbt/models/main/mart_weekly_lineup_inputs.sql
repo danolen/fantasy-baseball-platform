@@ -20,9 +20,10 @@
 with league_formats as (
     select
         league,
-        -- nolen_50 is draft-and-hold (no FAAB), so ftn_league_size is empty
-        -- in the seed. nullif() prevents cast('' as int) from blowing up.
-        cast(nullif(ftn_league_size, '') as int) as ftn_league_size,
+        -- ftn_league_size is null for draft-and-hold leagues (nolen_50).
+        -- dbt-athena loads the seed column as integer, so empty CSV cells
+        -- arrive as SQL NULL and no nullif() is needed here.
+        cast(ftn_league_size as int) as ftn_league_size,
         format
     from {{ ref('league_config') }}
 ),

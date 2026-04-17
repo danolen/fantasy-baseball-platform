@@ -7,11 +7,11 @@
 with league_config as (
     select
         league,
-        -- Draft-and-hold leagues (e.g. nolen_50) have no FTN FAAB file and
-        -- leave ftn_league_size empty in the seed. nullif() keeps the cast
-        -- from failing; the inner join to stg_ftn_faab below drops them
-        -- naturally so no FAAB rows get attached.
-        cast(nullif(ftn_league_size, '') as int) as ftn_league_size,
+        -- ftn_league_size is null for draft-and-hold leagues (nolen_50).
+        -- dbt-athena loads the seed column as integer, so empty CSV cells
+        -- arrive as SQL NULL; the inner join to stg_ftn_faab below drops
+        -- those rows naturally so no FAAB data gets attached.
+        cast(ftn_league_size as int) as ftn_league_size,
         format
     from {{ ref('league_config') }}
 ),
