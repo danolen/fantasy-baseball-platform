@@ -7,7 +7,11 @@
 with league_config as (
     select
         league,
-        cast(ftn_league_size as int) as ftn_league_size,
+        -- Draft-and-hold leagues (e.g. nolen_50) have no FTN FAAB file and
+        -- leave ftn_league_size empty in the seed. nullif() keeps the cast
+        -- from failing; the inner join to stg_ftn_faab below drops them
+        -- naturally so no FAAB rows get attached.
+        cast(nullif(ftn_league_size, '') as int) as ftn_league_size,
         format
     from {{ ref('league_config') }}
 ),
@@ -65,6 +69,7 @@ select
     cast(case wp.format
         when 'oc' then wp.ros_oc
         when 'me' then wp.ros_me
+        when '50s' then wp.ros_50
     end as double) as ros_value,
     ftn.ftn_type,
     cast(ftn.low_bid as int) as low_bid,
