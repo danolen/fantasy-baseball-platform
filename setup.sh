@@ -9,16 +9,16 @@ echo "Setting up Python virtual environment for Streamlit Draft Tool..."
 
 # Check if Python 3 is installed
 if ! command -v python3 &> /dev/null; then
-    echo "Error: Python 3 is not installed. Please install Python 3.8 or higher."
+    echo "Error: Python 3 is not installed. Please install Python 3.10 or higher."
     exit 1
 fi
 
-# Check Python version (require 3.8+)
+# Check Python version (require 3.10+ for dbt-athena 1.10+)
 PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
-REQUIRED_VERSION="3.8"
+REQUIRED_VERSION="3.10"
 
 if [ "$(printf '%s\n' "$REQUIRED_VERSION" "$PYTHON_VERSION" | sort -V | head -n1)" != "$REQUIRED_VERSION" ]; then
-    echo "Error: Python 3.8 or higher is required. You have Python $PYTHON_VERSION"
+    echo "Error: Python 3.10 or higher is required. You have Python $PYTHON_VERSION"
     exit 1
 fi
 
