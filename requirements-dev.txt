@@ -1,0 +1,10 @@
+# Dev-only dependencies for local dbt + tooling.
+# Kept separate from requirements.txt so Streamlit Community Cloud (which only
+# reads requirements.txt) doesn't install these on every deploy.
+#
+# Install with:
+#   pip install -r requirements-dev.txt
+#
+# Requires Python >= 3.10 (per dbt-athena 1.10+).
+
+dbt-athena

@@ -8,9 +8,14 @@ A personal data lakehouse and analytics platform for fantasy baseball draft prep
 
 | Directory | Description |
 |-----------|-------------|
-| [`dbt/`](dbt/) | dbt project -- Iceberg tables in Athena using a medallion architecture (source / stage / main) |
+| [`dbt/`](dbt/) | dbt project -- Iceberg tables in Athena using a medallion architecture (source / stage / main). See [`dbt/README.md`](dbt/README.md) for local setup. |
 | [`apps/draft-tool/`](apps/draft-tool/) | Streamlit draft tool -- player rankings, projected stats, real-time draft tracking via DynamoDB |
+| [`apps/in-season-tool/`](apps/in-season-tool/) | Streamlit in-season tool -- FAAB worksheet, weekly lineup recommendations |
 | [`utils/`](utils/) | Utility scripts for data operations (e.g., S3 uploads) |
+
+Production dbt builds run in **dbt Cloud**. Local dbt (`dbt parse` / `dbt compile`)
+is optional but speeds up feature-branch iteration; install with
+`pip install -r requirements-dev.txt` and see [`dbt/README.md`](dbt/README.md).
 
 ---
 

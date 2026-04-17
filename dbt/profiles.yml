@@ -1,0 +1,26 @@
+# Local dbt profile for this repo.
+#
+# Scope: designed primarily for `dbt parse` and `dbt compile` (no AWS calls).
+# These commands validate Jinja, refs, sources, and macros without touching
+# Athena, so the placeholder defaults below are sufficient.
+#
+# If you later want to run `dbt build` / `dbt run` locally against Athena,
+# set the env vars below in your shell (or reuse your .env by sourcing it:
+# `set -a; source .env; set +a`) and dbt will pick them up.
+#
+# Lookup: dbt searches for profiles.yml in the current dir first (as of dbt
+# 1.5+), so running dbt from the `dbt/` directory picks this file up
+# automatically. No DBT_PROFILES_DIR needed.
+
+default:
+  target: dev
+  outputs:
+    dev:
+      type: athena
+      s3_staging_dir: "{{ env_var('ATHENA_S3_OUTPUT', 's3://placeholder-bucket/staging/') }}"
+      s3_data_dir: "{{ env_var('ATHENA_S3_DATA_DIR', 's3://placeholder-bucket/data/') }}"
+      region_name: "{{ env_var('ATHENA_REGION', 'us-east-1') }}"
+      database: "{{ env_var('ATHENA_DATABASE', 'AwsDataCatalog') }}"
+      schema: "{{ env_var('ATHENA_SCHEMA', 'dbt_main_dev') }}"
+      work_group: "{{ env_var('ATHENA_WORKGROUP', 'primary') }}"
+      threads: 4
