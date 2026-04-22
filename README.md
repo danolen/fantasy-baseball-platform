@@ -68,6 +68,17 @@ Although the current dataset is small, the architecture is designed to scale nat
 
 ---
 
+## Manual data maintenance
+
+A few seeds need periodic hand-updates while headless ingestion is still pending (Phase 2b):
+
+| Seed | Update cadence | After updating |
+|------|----------------|----------------|
+| [`dbt/seeds/faab_remaining.csv`](dbt/seeds/faab_remaining.csv) | Weekly, after NFBC waivers run | `dbt seed --select faab_remaining` in dbt Cloud; no full rebuild needed |
+| [`dbt/seeds/ftn_nfbc_player_overrides.csv`](dbt/seeds/ftn_nfbc_player_overrides.csv) | As-needed when the FAAB app surfaces unmatched FTN players | `dbt seed && dbt build` |
+
+---
+
 ## Disclaimer
 
 This project is for personal use and learning. All data sources are accessed via legitimate paid subscriptions where required and are not redistributed.

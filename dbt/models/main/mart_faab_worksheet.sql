@@ -16,11 +16,25 @@ with league_config as (
     from {{ ref('league_config') }}
 ),
 
+my_faab as (
+    -- Manually-maintained per-league budget remaining. Update weekly after
+    -- waivers run in dbt/seeds/faab_remaining.csv, then re-seed. Competitor
+    -- FAAB (opponents' remaining budgets) needs an NFBC scrape and lands
+    -- in Phase 2b, not here.
+    select
+        league,
+        cast(my_faab_remaining as int) as my_faab_remaining,
+        cast(as_of_date as varchar) as faab_as_of_date
+    from {{ ref('faab_remaining') }}
+),
+
 weekly as (
-    select wp.*, lc.format
+    select wp.*, lc.format, mf.my_faab_remaining, mf.faab_as_of_date
     from {{ ref('mart_weekly_projections') }} wp
     inner join league_config lc
         on wp.league = lc.league
+    left join my_faab mf
+        on wp.league = mf.league
 ),
 
 ftn_by_league as (
@@ -77,7 +91,18 @@ select
     ftn.ftn_notes,
     ftn.bid_change,
     ftn.status_tag,
-    cast(case when ftn.nfbc_id is not null then 1 else 0 end as int) as has_ftn_rec
+    cast(case when ftn.nfbc_id is not null then 1 else 0 end as int) as has_ftn_rec,
+    wp.my_faab_remaining,
+    wp.faab_as_of_date,
+    -- What fraction of your remaining budget this bid would consume. Null
+    -- for draft-and-hold (nolen_50 with my_faab_remaining=0) and for
+    -- FTN-only rows with no matching weekly (where wp.* is all null).
+    cast(
+        case
+            when wp.my_faab_remaining is null or wp.my_faab_remaining <= 0 then null
+            else cast(ftn.high_bid as double) / wp.my_faab_remaining * 100
+        end as double
+    ) as high_bid_pct_of_faab
 from weekly wp
 full outer join ftn_by_league ftn
     on wp.id = ftn.nfbc_id
