@@ -200,7 +200,50 @@ with tab_faab:
     if search:
         mask &= df["player"].str.contains(search, case=False, na=False)
 
-    display = df.loc[mask]
+    display = df.loc[mask].copy()
+
+    has_faab = (
+        "my_faab_remaining" in display.columns
+        and display["my_faab_remaining"].notna().any()
+        and (pd.to_numeric(display["my_faab_remaining"], errors="coerce").fillna(0) > 0).any()
+    )
+
+    def _format_pct_of_faab(v):
+        # Emoji prefix preserved in the rendered string; the underlying
+        # sort uses the raw numeric column so "🔴 17.9%" still sorts above
+        # "🟢 4.0%". Thresholds per Phase 1b plan: <5% green, 5-15% yellow,
+        # >15% red.
+        if v is None or pd.isna(v):
+            return ""
+        if v < 5:
+            badge = "🟢"
+        elif v < 15:
+            badge = "🟡"
+        else:
+            badge = "🔴"
+        return f"{badge} {v:.1f}%"
+
+    if has_faab:
+        display["pct_of_budget_display"] = display["high_bid_pct_of_faab"].apply(
+            _format_pct_of_faab
+        )
+    else:
+        display["pct_of_budget_display"] = ""
+
+    # FTN status arrows live in `status_tag` (e.g. "⬆️", "⬇️"). Prefix the
+    # player name when set so trending adds are scannable at a glance.
+    def _prefix_arrow(row):
+        name = row.get("player")
+        tag = row.get("status_tag")
+        if not isinstance(name, str):
+            return name
+        if not isinstance(tag, str) or not tag.strip():
+            return name
+        if tag in name:
+            return name
+        return f"{tag} {name}"
+
+    display["player"] = display.apply(_prefix_arrow, axis=1)
 
     COLUMNS = {
         "player": "Player",
@@ -209,19 +252,24 @@ with tab_faab:
         "ftn_type": "Type",
         "low_bid": "Low $",
         "high_bid": "High $",
+        "pct_of_budget_display": "% of Budget",
         "ros_value": "RoS $",
         "rfs12": "RFS12",
         "rfs15": "RFS15",
         "dollars": "Wk $",
         "dollars_per_game": "Wk $/G",
-        "num_g": "G",
-        "opps": "Matchups",
         "dollars_monday_thursday": "M-Th $",
         "dollars_friday_sunday": "F-Su $",
         "owner": "Owner",
         "own_pct": "Own%",
         "ftn_notes": "Notes",
     }
+
+    # Hide FAAB-specific columns for draft-and-hold leagues (nolen_50 with
+    # my_faab_remaining = 0). Everything else stays since projection/ROS
+    # data is still useful for trade/drop decisions there.
+    if not has_faab:
+        COLUMNS.pop("pct_of_budget_display", None)
 
     sort_cols = [
         c for c in ["has_ftn_rec", "high_bid", "ros_value"] if c in display.columns
@@ -257,12 +305,31 @@ with tab_faab:
         else "N/A"
     )
     c3.metric("Week Of", week_val)
-    unowned_count = (
-        len(display[display["owner"].isna() | (display["owner"] == "")])
-        if "owner" in display.columns
-        else "—"
-    )
-    c4.metric("Unowned", unowned_count)
+    if has_faab:
+        faab_val = pd.to_numeric(
+            display["my_faab_remaining"], errors="coerce"
+        ).dropna()
+        faab_as_of = (
+            display["faab_as_of_date"].dropna().iloc[0]
+            if "faab_as_of_date" in display.columns
+               and not display["faab_as_of_date"].dropna().empty
+            else None
+        )
+        c4.metric(
+            "Your FAAB",
+            f"${int(faab_val.iloc[0])}" if not faab_val.empty else "N/A",
+            help=(
+                f"As of {faab_as_of}. Update `dbt/seeds/faab_remaining.csv` "
+                "and re-seed weekly."
+            ) if faab_as_of else None,
+        )
+    else:
+        unowned_count = (
+            len(display[display["owner"].isna() | (display["owner"] == "")])
+            if "owner" in display.columns
+            else "—"
+        )
+        c4.metric("Unowned", unowned_count)
 
     st.dataframe(out, use_container_width=True, hide_index=True, height=700)
 
