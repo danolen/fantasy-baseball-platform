@@ -8,6 +8,9 @@ dbt/.user.yml
 data/
 context/
 
+# Cursor stores project plans under the user profile (e.g. ~/.cursor/plans); do not duplicate them in-repo
+docs/plans/
+
 # Python
 __pycache__/
 *.py[cod]

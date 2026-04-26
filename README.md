@@ -2,6 +2,8 @@
 
 A personal data lakehouse and analytics platform for fantasy baseball draft preparation and in-season decision making. Built with dbt, Streamlit, and AWS.
 
+**Roadmap and feature plans** are kept in Cursor’s plan files (typically `~/.cursor/plans/` on your machine). They are not committed in this repository, so there is a single source of truth.
+
 ---
 
 ## Repository Structure
