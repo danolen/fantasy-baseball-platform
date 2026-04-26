@@ -144,6 +144,15 @@ with tab_faab:
         st.error(f"Failed to load data from Athena: {e}")
         st.stop()
 
+    # League-level FAAB budget (full table, not sidebar filters) for help UI.
+    league_has_faab = (
+        "my_faab_remaining" in df.columns
+        and df["my_faab_remaining"].notna().any()
+        and (
+            pd.to_numeric(df["my_faab_remaining"], errors="coerce").fillna(0) > 0
+        ).any()
+    )
+
     if league_key == "nolen_50":
         st.info(
             "NFBC 50 is draft-and-hold — no FAAB. This tab still shows weekly "
@@ -295,6 +304,32 @@ with tab_faab:
     out = out.rename(columns=visible)
 
     st.subheader(f"FAAB Worksheet — {selected_league}")
+
+    if league_has_faab:
+        with st.expander("Cross-league-size FTN recs (manual)", expanded=False):
+            st.markdown(
+                "FTN publishes separate 12- and 15-team FAAB files. A player can "
+                "appear in one file and not the other. This table only shows the "
+                "recommendation for **your** league’s FTN file size. "
+                "If you are comparing to the **other** file, translate the low/high "
+                "range using the role heuristics below (by FTN **Type**, not raw "
+                "position). Round to a sensible whole-dollar bid."
+            )
+            st.markdown(
+                "| Direction | Rule of thumb |\n"
+                "|-----------|---------------|\n"
+                "| **12T → 15T** (player only in the 12-team file) | Apply the "
+                "multiplier to the **midpoint** of Low/High: **1.3×** default; "
+                "**1.5×** closer / saves-chase specs; **1.4×** non-closer "
+                "high-leverage RP; **1.25×** SP streamers. |\n"
+                "| **15T → 12T** (player only in the 15-team file) | Divide the "
+                "midpoint by the **same** factor (15-team pools are shallower; "
+                "the name often clears for less). |\n"
+            )
+            st.caption(
+                "Example: 12T Low/High 80–160 on a closer-type add — midpoint 120; "
+                "for 15T context try ~1.5× → **~180** (illustrative only)."
+            )
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Players", len(out))
