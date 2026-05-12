@@ -53,3 +53,7 @@ Without these, apps will start but show a config error. `dbt parse` works withou
 - The `venv/` directory is at the repo root.
 - `dbt compile` fails without AWS credentials — use `dbt parse` for offline validation.
 - The in-season tool imports `lineup_optimizer` from its own directory (`apps/in-season-tool/lineup_optimizer.py`), so it must be run from that directory or the repo root with Streamlit's runner.
+- Athena queries from the Streamlit apps take a few seconds on first load (cold cache). Streamlit caches results (TTL 15 min for rankings, 1 hour for percentiles) so subsequent loads are instant.
+- The Draft Tool auto-loads player data on startup — no manual "load" step needed. It will show a spinner then a "Loaded X players" success message.
+- `dbt compile` (with credentials) reports 92 models, 4 seeds, 18 sources. This is useful as a baseline when verifying model changes.
+- `python3.12-venv` system package is required for creating the virtual environment on Ubuntu. The update script handles this.
