@@ -307,7 +307,7 @@ def create_issue(
     available_labels: set[str],
 ) -> int:
     args = ["issue", "create", "--repo", REPO, "--title", title, "--body-file", "-"]
-    applied = [l for l in labels if l in available_labels]
+    applied = [label for label in labels if label in available_labels]
     for label in applied:
         args += ["--label", label]
     _, out, _ = gh(*args, stdin=body)
@@ -359,7 +359,7 @@ def main(argv: list[str] | None = None) -> int:
             number = state.get(issue["key"])
             if not number:
                 continue
-            applied = [l for l in issue["labels"] if l in available_labels]
+            applied = [lbl for lbl in issue["labels"] if lbl in available_labels]
             if not applied:
                 continue
             edit_args = ["issue", "edit", str(number), "--repo", REPO]

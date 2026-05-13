@@ -145,7 +145,7 @@ def mark_player_drafted(table, player_id, player_name=None):
             response = table.get_item(Key={'player_id': str(player_id)})
             if 'Item' in response:
                 existing_item = response['Item']
-        except:
+        except Exception:
             pass
         
         table.put_item(
@@ -308,7 +308,7 @@ def optimize_dataframe_memory(df):
             if unique_ratio < 0.7:  # More aggressive: convert if less than 70% unique
                 try:
                     df[col] = df[col].astype('category')
-                except:
+                except Exception:
                     pass  # Skip if conversion fails
     
     # Downcast numeric columns to smaller types
@@ -324,7 +324,7 @@ def optimize_dataframe_memory(df):
         if col in df.columns and df[col].dtype == 'object':
             try:
                 df[col] = df[col].astype('category')
-            except:
+            except Exception:
                 pass
     
     return df
@@ -451,7 +451,7 @@ if refresh_button:
         total_drafted_count = len(get_drafted_players(draft_table, draft_session_id, force_refresh=True))
         pick_key = f"current_pick_{draft_session_id}_{format_type}"
         st.session_state[pick_key] = total_drafted_count + 1
-    except Exception as e:
+    except Exception:
         pass  # Silently fail if DynamoDB isn't available
     st.info("Cache cleared! Data will reload automatically.")
 
@@ -631,11 +631,11 @@ def render_filters_and_apply(df, draft_table, draft_session_id):
     
     # Filter by draft status
     if draft_filter == "Drafted Only" and 'Drafted' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['Drafted'] == True]
+        filtered_df = filtered_df[filtered_df['Drafted'].eq(True)]
     elif draft_filter == "Undrafted Only" and 'Drafted' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['Drafted'] == False]
+        filtered_df = filtered_df[filtered_df['Drafted'].eq(False)]
     elif draft_filter == "My Team Only" and 'My Team' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['My Team'] == True]
+        filtered_df = filtered_df[filtered_df['My Team'].eq(True)]
     
     return filtered_df, draft_table
 
@@ -727,10 +727,13 @@ if st.session_state[cache_key] is not None:
         if current_draft_type == "Mock Draft":
             if st.button("🎲 Simulate Next Pick", type="primary", use_container_width=True):
                 # Get undrafted players (exclude players on "My Team")
-                undrafted_df = filtered_df[
-                    (filtered_df.get('Drafted', False) == False) & 
-                    (filtered_df.get('My Team', False) == False)
-                ].copy()
+                if 'Drafted' not in filtered_df.columns or 'My Team' not in filtered_df.columns:
+                    undrafted_df = filtered_df.copy()
+                else:
+                    undrafted_df = filtered_df[
+                        filtered_df['Drafted'].eq(False)
+                        & filtered_df['My Team'].eq(False)
+                    ].copy()
                 
                 # Filter to players with ADP data
                 if 'adp' in undrafted_df.columns and 'min_pick' in undrafted_df.columns and 'max_pick' in undrafted_df.columns:
@@ -863,7 +866,7 @@ if st.session_state[cache_key] is not None:
         
         # TEAM STATS COMPARISON CHART
         # Get players on my team (use full dataset, not filtered - team stats should always show regardless of filters)
-        my_team_df = df[df.get('My Team', False) == True] if 'My Team' in df.columns else pd.DataFrame()
+        my_team_df = df[df['My Team']] if 'My Team' in df.columns else pd.DataFrame()
         
         if len(my_team_df) > 0:
             st.subheader("My Team Stats vs Percentiles")
