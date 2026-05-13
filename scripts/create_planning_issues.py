@@ -21,8 +21,8 @@ this order:
 
 1. ``GH_PAT`` env var (preferred for local runs).
 2. ``GH_TOKEN`` env var.
-3. AWS Secrets Manager secret named ``fantasy-baseball-platform/gh_pat``
-   in ``us-east-1``. The secret value can be either the raw token string
+3. AWS Secrets Manager secret named ``fantasy-baseball-platform`` in
+   ``us-east-1``. The secret value can be either the raw token string
    or a JSON object with a ``token`` key. Override the name with
    ``GH_PAT_SECRET_NAME`` and the region with ``GH_PAT_SECRET_REGION``.
 4. Whatever ``gh auth`` has configured.
@@ -37,7 +37,7 @@ create labels, assign labels, edit issues, comment, or close issues. To
 use this script with full label support, generate a fine-grained PAT
 scoped to the repo with the permissions above and either:
 
-1. Add it as ``fantasy-baseball-platform/gh_pat`` in AWS Secrets Manager
+1. Add it as ``fantasy-baseball-platform`` in AWS Secrets Manager
    (works automatically inside the Cloud Agent VM, which already has
    AWS credentials).
 2. Add it as a Secret named ``GH_PAT`` in the Cursor dashboard
@@ -116,7 +116,7 @@ def _gh_pat_from_secrets_manager() -> str | None:
     except ImportError:
         return None
 
-    name = os.environ.get("GH_PAT_SECRET_NAME", "fantasy-baseball-platform/gh_pat")
+    name = os.environ.get("GH_PAT_SECRET_NAME", "fantasy-baseball-platform")
     region = os.environ.get("GH_PAT_SECRET_REGION", "us-east-1")
     try:
         client = boto3.client("secretsmanager", region_name=region)

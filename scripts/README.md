@@ -25,10 +25,9 @@ artifact you can review in a PR, edit if you want, and then run once.
    - **`GH_PAT` env var** (preferred for local runs):
      `export GH_PAT=ghp_xxx`
    - **AWS Secrets Manager** (preferred for Cloud Agents): store the
-     token at `fantasy-baseball-platform/gh_pat` in `us-east-1`. The
-     value can be either the raw token string or
-     `{"token": "ghp_xxx"}`. Override the name/region with
-     `GH_PAT_SECRET_NAME` / `GH_PAT_SECRET_REGION`.
+     token at `fantasy-baseball-platform` in `us-east-1`. The value can
+     be either the raw token string or `{"token": "ghp_xxx"}`. Override
+     the name/region with `GH_PAT_SECRET_NAME` / `GH_PAT_SECRET_REGION`.
    - **Cursor dashboard secret** named `GH_PAT` under
      *Cloud Agents → Secrets*. Note that Cursor only injects secrets
      when a new agent VM is provisioned — existing sessions don't see
