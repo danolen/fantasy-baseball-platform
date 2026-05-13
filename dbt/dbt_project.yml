@@ -49,3 +49,29 @@ models:
       +schema: main
       +table_type: iceberg
       +format: parquet
+      # Selectors: use `dbt build --select +tag:<name>` so upstream refs build too.
+      # `inseason` — Streamlit in-season tool (single tag for the whole slice for now).
+      mart_faab_worksheet:
+        +tags: [inseason]
+      mart_faab_unmatched:
+        +tags: [inseason]
+      mart_weekly_lineup_inputs:
+        +tags: [inseason]
+      mart_weekly_projections:
+        +tags: [inseason]
+      # `preseason` — draft tool rankings + SGP percentiles mart.
+      mart_preseason_overall_rankings_me:
+        +tags: [preseason]
+      mart_preseason_overall_rankings_oc:
+        +tags: [preseason]
+      mart_preseason_overall_rankings_50s:
+        +tags: [preseason]
+      mart_sgp_percentiles:
+        +tags: [preseason]
+      # `on_demand` — ROS ranking marts (heavier; not required for draft UI today).
+      mart_rest_of_season_overall_rankings_me:
+        +tags: [on_demand]
+      mart_rest_of_season_overall_rankings_oc:
+        +tags: [on_demand]
+      mart_rest_of_season_overall_rankings_50s:
+        +tags: [on_demand]

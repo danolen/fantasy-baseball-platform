@@ -28,28 +28,21 @@ These flows are described in [Manual data maintenance](../README.md#manual-data-
 3. Update the **Production jobs** table above so **cron, commands, target schema, and notifications** match what is saved in Cloud.
 4. If schema or model contracts change, update app secrets or docs in the same PR when possible.
 
-## dbt Cloud jobs
+## Model tags
 
-Production runs are configured in **dbt Cloud** (account URL: [cloud.getdbt.com](https://cloud.getdbt.com/) → your project → **Deploy** → **Jobs**). This section is the **in-repo catalog**: keep it aligned with Cloud so anyone (or a cloud agent) can see **what runs in production and how often** without opening the UI for routine questions.
+Tags are set in [`dbt_project.yml`](dbt_project.yml) on `main/` marts only (upstream `source` / `stage` models stay untagged and are pulled in through the DAG).
 
-**At a glance:** Production targets Athena schema **`dbt_main`** (Streamlit production `ATHENA_SCHEMA`; see [`apps/draft-tool/README.md`](../apps/draft-tool/README.md)). dbt Cloud **Environment** variables for production jobs should use that schema unless you intentionally deploy elsewhere. Expect at least one **primary scheduled job** that builds the DAG (typically `dbt build` or the equivalent steps in Cloud). Separately, the repo documents a **weekly** `faab_remaining` seed refresh and an **on-demand** `dbt seed && dbt build` path for FTN / NFBC overrides — see [Manual data maintenance](../README.md#manual-data-maintenance).
+Use a **leading `+`** on the selector so every upstream ref builds:
 
-### Production jobs
+| Tag | Purpose | Typical command |
+|-----|---------|-------------------|
+| `inseason` | In-season Streamlit app — `mart_faab_worksheet`, `mart_faab_unmatched`, `mart_weekly_lineup_inputs`, and `mart_weekly_projections` (weekly projections feed the other marts). | `dbt build --select +tag:inseason` |
+| `preseason` | Draft tool — preseason overall ranking marts (ME / OC / 50s) and `mart_sgp_percentiles`. | `dbt build --select +tag:preseason` |
+| `on_demand` | Rest-of-season overall ranking marts (heavier path; not required for the draft UI today). | `dbt build --select +tag:on_demand` |
 
-| Job name | Schedule (cron, UTC) | dbt command / selectors | Target schema | Notifications |
-|----------|------------------------|---------------------------|---------------|---------------|
-| **Primary production build** | *Paste from dbt Cloud → Job → Schedule (note UI timezone; store cron in UTC here).* | *Paste execution commands from Cloud (often a single `dbt build`, or `dbt build` plus selectors).* | `dbt_main` | *Paste from Job → Notifications (Slack, email, webhooks are configured in Cloud only).* |
-| **FAAB remaining seed** | Weekly after NFBC waivers — *set cron in Cloud to match your waiver day/time.* | `dbt seed --select faab_remaining` | `dbt_main` | *Same as the job that runs this command (dedicated job or a step in a larger job).* |
-| **FTN / NFBC player overrides** | On demand (when unmatched FTN players appear in the FAAB app). | `dbt seed && dbt build` (see [Manual data maintenance](../README.md#manual-data-maintenance); narrow commands in Cloud if you later split this into selectors). | `dbt_main` | *Per Job settings in Cloud.* |
+Each tagged mart has **one** of these tags. Shared upstream (for example `mart_sgp_factors`) stays **untagged** so it is built whenever a path that depends on it runs.
 
-The **FAAB** and **FTN overrides** rows mirror [Manual data maintenance](../README.md#manual-data-maintenance) in the root `README.md`. If you implement them as **steps inside one job** instead of separate jobs, keep one row per **logical** workload but note “step N of job *X*” in the *Job name* or *Commands* column.
-
-### Changing a job
-
-1. In dbt Cloud, open **Deploy** → **Jobs** → select the job → edit **Schedule**, **Commands**, **Environment**, or **Notifications** → **Save**.
-2. Optionally run **Run now** and confirm Athena tables and downstream Streamlit apps look correct.
-3. Update the table above so **cron, commands, target schema, and notifications** match what is saved in Cloud (especially after renames or selector changes).
-4. If schema or model contracts change, update app secrets or docs in the same PR when possible.
+Inspect a slice: `dbt ls --select +tag:inseason`.
 
 ## One-time setup
 
