@@ -41,8 +41,10 @@ python scripts/create_planning_issues.py --relink-only
 ```
 
 State is persisted to `scripts/.issue_state.json` so re-runs skip already-
-created issues. Delete that file to start over (or to point the script at a
-different repo).
+created issues. **This file is committed** so anyone can re-run the script
+(for example to retro-apply labels after granting a PAT) without
+re-creating the issues. Delete it to start over (or to point the script at
+a different repo).
 
 ### Tweaking the issues before running
 
