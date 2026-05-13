@@ -5,6 +5,6 @@
 # Install with:
 #   pip install -r requirements-dev.txt
 #
-# Requires Python >= 3.10 (per dbt-athena 1.10+).
+# Requires Python 3.10 or newer (per dbt-athena 1.10+).
 
-dbt-athena
+dbt-athena==1.10.0
