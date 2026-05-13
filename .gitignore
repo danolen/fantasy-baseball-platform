@@ -18,3 +18,7 @@ venv/
 .env
 .env.local
 .DS_Store
+
+# Issue-creation script state (local; tracks which planning issues
+# already exist on GitHub for `scripts/create_planning_issues.py`).
+scripts/.issue_state.json
