@@ -111,7 +111,7 @@ if not ATHENA_S3_OUTPUT:
       ATHENA_S3_OUTPUT = "s3://your-bucket/query-results/"
       ```
     - Make sure to use quotes around the S3 path
-    - See DEPLOYMENT.md for full instructions
+    - See `apps/draft-tool/README.md` in the repository for full setup notes
     """)
     st.stop()
 
