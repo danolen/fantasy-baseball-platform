@@ -1,5 +1,23 @@
 # AGENTS.md
 
+## Maintainer rules and preferences
+
+### Git (required)
+
+- **Never commit directly to `master`.** All changes go on a **feature branch**, then a **pull request** for review. The maintainer merges PRs; agents should not merge to `master` from local or cloud sessions.
+- Prefer branch names like `feat/<phase>-<short-description>` (e.g. `feat/1c-sp-streamer-v1`), `fix/...` for bug fixes, and `chore/...` for hygiene (tests, docs, config-only).
+
+### How to ship work
+
+- Prefer **small, incremental updates** (one focused PR per meaningful chunk) over large sweeping refactors or mega-diffs unless the maintainer explicitly asks for a bigger change set.
+- Keep each change set **tied to a clear outcome** (e.g. one mart column set, one app tab slice) so review and rollback stay easy.
+
+### AWS vs this repository
+
+- **AWS** (S3, Glue, Athena, IAM, ECS, etc.) is handled by the maintainer unless they say otherwise. Agents work in **this repo** (dbt, Streamlit, seeds, Python utils, docs) and can describe needed AWS steps for the maintainer to apply.
+
+---
+
 ## Cursor Cloud specific instructions
 
 ### Overview
