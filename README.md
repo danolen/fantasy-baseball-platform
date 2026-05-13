@@ -15,8 +15,7 @@ A personal data lakehouse and analytics platform for fantasy baseball draft prep
 | [`apps/in-season-tool/`](apps/in-season-tool/) | Streamlit in-season tool -- FAAB worksheet, weekly lineup recommendations |
 | [`utils/`](utils/) | Utility scripts for data operations (e.g., S3 uploads) |
 
-Production dbt builds run in **dbt Cloud**. Local dbt (`dbt parse` / `dbt compile`)
-is optional but speeds up feature-branch iteration; install with
+Production **dbt Cloud Jobs** (scheduled orchestration) are **not set up yet**; add them when ready and document each job in [`dbt/README.md`](dbt/README.md#dbt-cloud-jobs). Until then, use local dbt (`dbt parse` / `dbt compile`, and optional `dbt build` with AWS credentials) for iteration; install with
 `pip install -r requirements-dev.txt` and see [`dbt/README.md`](dbt/README.md).
 
 ---
@@ -76,8 +75,8 @@ A few seeds need periodic hand-updates while headless ingestion is still pending
 
 | Seed | Update cadence | After updating |
 |------|----------------|----------------|
-| [`dbt/seeds/faab_remaining.csv`](dbt/seeds/faab_remaining.csv) | Weekly, after NFBC waivers run | `dbt seed --select faab_remaining` in dbt Cloud; no full rebuild needed |
-| [`dbt/seeds/ftn_nfbc_player_overrides.csv`](dbt/seeds/ftn_nfbc_player_overrides.csv) | As-needed when the FAAB app surfaces unmatched FTN players | `dbt seed && dbt build` |
+| [`dbt/seeds/faab_remaining.csv`](dbt/seeds/faab_remaining.csv) | Weekly, after NFBC waivers run | `dbt seed --select faab_remaining` (locally with credentials, or via a dbt Cloud job once you add one); no full rebuild needed |
+| [`dbt/seeds/ftn_nfbc_player_overrides.csv`](dbt/seeds/ftn_nfbc_player_overrides.csv) | As-needed when the FAAB app surfaces unmatched FTN players | `dbt seed && dbt build` (same: local or Cloud) |
 
 ---
 
