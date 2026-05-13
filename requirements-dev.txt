@@ -6,5 +6,12 @@
 #   pip install -r requirements-dev.txt
 #
 # Requires Python 3.10 or newer (per dbt-athena 1.10+).
+#
+# Pin dbt-core: dbt-athena allows dbt-core>=1.8, which can resolve to 1.11.x.
+# Newer dbt-core wheels ship `supported_languages=['sql','python','javascript']`
+# on bundled materializations while `ModelLanguage` omits `javascript`, so
+# `dbt parse` fails with KeyError: 'javascript' in fresh CI installs. Cap at
+# 1.10.8 (last 1.10.x before that regression in 1.10.9+).
 
+dbt-core==1.10.8
 dbt-athena==1.10.0
