@@ -64,6 +64,44 @@ All data flows through AWS (Athena, S3, DynamoDB). For full end-to-end testing, 
 
 Without these, apps will start but show a config error. `dbt parse` works without credentials.
 
+### Token efficiency (please read first)
+
+Cloud agent runs cost real money. Before doing anything else on a ticket, follow the rules below to avoid burning credits on work that was already done in the 2026-05-13 planning session.
+
+**Pre-loaded context — do not redo this work**
+
+- The planning roadmap lives in GitHub issues #35–#99 in this repo. Each ticket already contains the outcome, why-it-matters, files likely touched, acceptance criteria, and (for Phase 3 AI tickets) a reading list and pre-implementation exercises. **Read the ticket body in full before touching any code or exploring the repo.** The acceptance criteria are the scope; do not expand.
+- A full repo audit was done on 2026-05-13. The state-of-the-platform facts you would otherwise rediscover are already encoded in the relevant issue bodies. If you need a quick map: 92 dbt models, 4 seeds, 18 sources, 12 marts, two Streamlit apps (`apps/draft-tool`, `apps/in-season-tool`), no CI yet, no `.github/` workflows, no Prefect/Airflow code, one operator helper at `utils/upload_folder_to_s3.py`.
+- Phase 2 / 3 tickets cite specific pages of *The Process* (PDFs in `s3://dn-lakehouse-dev/context/TheProcessBook/`). **Do not re-extract the full book.** If you need a quote, fetch only the specific pages you need using `boto3` + `pypdf`. The `aws` CLI is not installed in this VM by default; use `boto3`.
+
+**Tool-use rules that save tokens**
+
+- Trust issue bodies as the spec. Don't pre-emptively re-derive context that the ticket already states.
+- Use `Grep` and `Glob` before `Read`. Never speculatively `Read` an entire file unless the ticket says you need it.
+- Batch independent tool calls in parallel within a single message instead of serializing them.
+- Combine related shell commands into one `Shell` call with `&&` chains rather than multiple invocations.
+- Avoid `computerUse`, `videoReview`, and `RecordScreen` unless the ticket is a visible UI change. Most Phase 1 work has no UI to record.
+- Avoid spinning up sub-`Task` agents unless the work is genuinely broad exploration. Each subagent multiplies token cost.
+- Prefer `dbt parse` (free, offline) over `dbt compile` / `dbt build` (slow, costs AWS). Only run AWS-touching commands when the acceptance criteria require it.
+- Skip the testing walkthrough for dotfile / template / CI-yaml-only changes. Apply the system prompt's "/no-test for trivial changes" spirit — if the change is mechanical and obviously correct, ship it.
+
+**Model selection: Composer vs. frontier**
+
+Cursor's faster/cheaper model (Composer) is sufficient for most Phase 1 tickets. Phase 2 and Phase 3 work generally needs a frontier model. Rough guide — override if a specific ticket disagrees:
+
+| Composer-friendly | Frontier model recommended |
+| --- | --- |
+| **A1.\*** repo hygiene (`#35`–`#38`): boilerplate CI YAML, PR/issue templates, dead-link removal, dependency pinning | **A4.1** Prefect ADR (`#43`): architectural decisions, cost analysis, infra scaffolding |
+| **A2.\*** dbt docs/tags (`#39`, `#40`): README transcription, mechanical tag annotation | **A4.2–A4.5** Prefect vendor flows (`#44`–`#47`): auth-gated scrapes, retry/error design, integration |
+| **A3.\*** GitHub Actions quick wins (`#41`, `#42`): standard cron workflow + small Python uploader | **A5.2** DynamoDB-backed override editor (`#49`): cross-cutting app + dbt + data-model change |
+| **A5.1, A5.3** seed-source swap and unmatched-FTN badge (`#48`, `#50`) | **A6.3** dbt unit tests for SGP / FAAB worksheet (`#53`): requires understanding of book-derived logic |
+| **A6.1, A6.2** dbt source freshness + schema tests (`#51`, `#52`): mechanical YAML | **A7.1** Terraform import (`#54`): high-risk infra, blast radius |
+| **B5.1** ROS rankings tab (`#67`): mirrors existing draft-tool patterns | **B1.\*** Projected standings + mobility (`#55`–`#57`): novel math, multi-source joins |
+| **D1, D2** AGENTS.md updates (`#81`, `#82`) | **B2.1, B3.\*, B4.\*, B5.2**: book-derived marts and widgets that need careful interpretation |
+| | **All of C1–C4** (`#69`–`#80`): Phase 3 AI work is learning-first and benefits from frontier reasoning; the maintainer explicitly wants to *not* speed through these |
+
+If a Composer-friendly ticket reveals unexpected complexity mid-task (ambiguity, integration with code you can't read in a single pass, novel algorithms), stop and ask the maintainer rather than guessing — that's still cheaper than a bad commit.
+
 ### Gotchas
 
 - `requirements.txt` is at the repo root (not in `apps/`) because Streamlit Community Cloud expects it there.
