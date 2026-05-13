@@ -6,6 +6,7 @@
 
 - **Never commit directly to `master`.** All changes go on a **feature branch**, then a **pull request** for review. The maintainer merges PRs; agents should not merge to `master` from local or cloud sessions.
 - Prefer branch names like `feat/<phase>-<short-description>` (e.g. `feat/1c-sp-streamer-v1`), `fix/...` for bug fixes, and `chore/...` for hygiene (tests, docs, config-only).
+- When work maps to a **GitHub issue**, **always include that issue’s number in the branch name** (for example `feat/35-ci-ruff-dbt-parse` or `fix/50-unmatched-ftn-badge`) so it is obvious which ticket the branch belongs to.
 
 ### How to ship work
 
