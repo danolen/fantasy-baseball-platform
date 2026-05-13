@@ -16,9 +16,18 @@ Usage
 
 Authentication and permissions
 ------------------------------
-The script shells out to the ``gh`` CLI. If ``GH_PAT`` is set it is used
-as the token; otherwise the script falls back to whatever ``gh auth``
-has configured. The token needs:
+The script shells out to the ``gh`` CLI. The GitHub token is resolved in
+this order:
+
+1. ``GH_PAT`` env var (preferred for local runs).
+2. ``GH_TOKEN`` env var.
+3. AWS Secrets Manager secret named ``fantasy-baseball-platform/gh_pat``
+   in ``us-east-1``. The secret value can be either the raw token string
+   or a JSON object with a ``token`` key. Override the name with
+   ``GH_PAT_SECRET_NAME`` and the region with ``GH_PAT_SECRET_REGION``.
+4. Whatever ``gh auth`` has configured.
+
+The token needs:
 
 - ``Issues: read and write`` — to create and label issues.
 - ``Metadata: read`` — to read repo metadata.
@@ -28,13 +37,18 @@ create labels, assign labels, edit issues, comment, or close issues. To
 use this script with full label support, generate a fine-grained PAT
 scoped to the repo with the permissions above and either:
 
-1. Add it as a Secret named ``GH_PAT`` in the Cursor dashboard
-   (Cloud Agents → Secrets). It will be injected on the next agent run.
-2. Or run the script locally with ``GH_PAT=ghp_xxx python ...``.
+1. Add it as ``fantasy-baseball-platform/gh_pat`` in AWS Secrets Manager
+   (works automatically inside the Cloud Agent VM, which already has
+   AWS credentials).
+2. Add it as a Secret named ``GH_PAT`` in the Cursor dashboard
+   (Cloud Agents → Secrets). Note: secrets are only injected when a
+   new VM is provisioned, so existing agent sessions may not see new
+   secrets right away.
+3. Or run the script locally with ``GH_PAT=ghp_xxx python ...``.
 
-If neither is possible, run with ``--skip-labels`` to create the issues
-unlabeled. You can label them later by hand or by re-running this
-script with a properly-scoped token (it skips already-created issues).
+If none of the above work, run with ``--skip-labels`` to create issues
+unlabeled. Label them later by hand or by re-running with a properly-
+scoped token (the script skips already-created issues).
 
 State
 -----
@@ -81,9 +95,68 @@ def save_state(state: dict[str, int]) -> None:
     STATE_PATH.write_text(json.dumps(state, indent=2, sort_keys=True))
 
 
+def _gh_pat_from_secrets_manager() -> str | None:
+    """Fetch ``GH_PAT`` from AWS Secrets Manager as a fallback when it is
+    not in the env. Used so cloud agents (and any other AWS-authenticated
+    runner) can pick up the token without an env var.
+
+    The secret name is read from ``GH_PAT_SECRET_NAME`` (default:
+    ``fantasy-baseball-platform/gh_pat``) and the region from
+    ``GH_PAT_SECRET_REGION`` (default: ``us-east-1``). The secret value can
+    be either the raw token string or a JSON object with a ``token`` key.
+
+    Returns ``None`` (without raising) if boto3 is missing, AWS creds are
+    not available, or the secret does not exist. Other errors are also
+    swallowed and logged so a missing fallback never breaks the env-var
+    happy path.
+    """
+    try:
+        import boto3  # type: ignore
+        from botocore.exceptions import BotoCoreError, ClientError  # type: ignore
+    except ImportError:
+        return None
+
+    name = os.environ.get("GH_PAT_SECRET_NAME", "fantasy-baseball-platform/gh_pat")
+    region = os.environ.get("GH_PAT_SECRET_REGION", "us-east-1")
+    try:
+        client = boto3.client("secretsmanager", region_name=region)
+        resp = client.get_secret_value(SecretId=name)
+    except (BotoCoreError, ClientError) as e:
+        sys.stderr.write(
+            f"note: could not fetch GH_PAT from Secrets Manager ({name} in "
+            f"{region}): {e.__class__.__name__}\n"
+        )
+        return None
+
+    value = resp.get("SecretString")
+    if not value:
+        return None
+    value = value.strip()
+    if value.startswith("{"):
+        try:
+            data = json.loads(value)
+        except json.JSONDecodeError:
+            return value or None
+        token = data.get("token") or data.get("GH_PAT") or data.get("gh_pat")
+        return token.strip() if isinstance(token, str) and token.strip() else None
+    return value or None
+
+
+def _resolve_gh_pat() -> str | None:
+    """Return a GitHub token from env, falling back to AWS Secrets Manager."""
+    token = os.environ.get("GH_PAT") or os.environ.get("GH_TOKEN")
+    if token:
+        return token
+    secret_token = _gh_pat_from_secrets_manager()
+    if secret_token:
+        os.environ["GH_PAT"] = secret_token
+        return secret_token
+    return None
+
+
 def gh(*args: str, stdin: str | None = None, check: bool = True) -> tuple[int, str, str]:
     env = os.environ.copy()
-    pat = env.get("GH_PAT")
+    pat = _resolve_gh_pat()
     if pat:
         env["GH_TOKEN"] = pat
     result = subprocess.run(

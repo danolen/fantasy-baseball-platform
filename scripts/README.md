@@ -20,11 +20,20 @@ artifact you can review in a PR, edit if you want, and then run once.
 
 1. Create a fine-grained GitHub Personal Access Token scoped to this repo
    with **Issues: Read and write** and **Metadata: Read-only** permissions.
-2. Choose how you'll run the script:
-   - **Locally:** `export GH_PAT=ghp_xxx`
-   - **From a Cursor Cloud Agent:** add a Secret named `GH_PAT` in the
-     Cursor dashboard under *Cloud Agents → Secrets*. It will be injected
-     as an env var on the next agent run.
+2. Choose how you'll provide the token to the script (resolved in this
+   order):
+   - **`GH_PAT` env var** (preferred for local runs):
+     `export GH_PAT=ghp_xxx`
+   - **AWS Secrets Manager** (preferred for Cloud Agents): store the
+     token at `fantasy-baseball-platform/gh_pat` in `us-east-1`. The
+     value can be either the raw token string or
+     `{"token": "ghp_xxx"}`. Override the name/region with
+     `GH_PAT_SECRET_NAME` / `GH_PAT_SECRET_REGION`.
+   - **Cursor dashboard secret** named `GH_PAT` under
+     *Cloud Agents → Secrets*. Note that Cursor only injects secrets
+     when a new agent VM is provisioned — existing sessions don't see
+     newly-added secrets, which is the reason the AWS Secrets Manager
+     fallback exists.
 
 ### Usage
 
