@@ -1,8 +1,32 @@
 # dbt — local development
 
-This directory holds the dbt project. **Production builds still run in dbt Cloud.**
-Local dbt here is for *fast feedback* (parse / compile / DAG inspection) on feature
-branches before pushing to dbt Cloud for a real build.
+This directory holds the dbt project. Use local dbt for *fast feedback* (parse / compile / DAG inspection) on feature branches.
+
+**dbt Cloud Jobs** (scheduled production runs) are **not configured yet**; when you add them, list each one under [dbt Cloud jobs](#dbt-cloud-jobs) so the schedule and commands stay visible in git.
+
+## dbt Cloud jobs
+
+There are **no dbt Cloud jobs** in this project yet. When you create them ([cloud.getdbt.com](https://cloud.getdbt.com/) → your project → **Deploy** → **Jobs**), add a row here for **each** production job with: **name**, **schedule (cron, UTC)**, **dbt command / selectors**, **target Athena schema** (production Streamlit apps use `ATHENA_SCHEMA=dbt_main`; see [`apps/draft-tool/README.md`](../apps/draft-tool/README.md)), and **notifications** (Slack / email / webhooks are configured only in Cloud).
+
+| Job name | Schedule (cron, UTC) | dbt command / selectors | Target schema | Notifications |
+|----------|------------------------|---------------------------|---------------|---------------|
+| *— none yet —* | | | | |
+
+### Manual maintenance commands (not jobs until wired in Cloud)
+
+These flows are described in [Manual data maintenance](../README.md#manual-data-maintenance) on the root `README.md`. Run them locally (with Athena credentials) or fold them into dbt Cloud jobs when you add automation:
+
+| Cadence | Command |
+|---------|---------|
+| Weekly after NFBC waivers | `dbt seed --select faab_remaining` |
+| On demand (FTN / unmatched players) | `dbt seed && dbt build` |
+
+### Changing a job
+
+1. In dbt Cloud, open **Deploy** → **Jobs** → select the job → edit **Schedule**, **Commands**, **Environment**, or **Notifications** → **Save**.
+2. Optionally run **Run now** and confirm Athena tables and downstream Streamlit apps look correct.
+3. Update the **Production jobs** table above so **cron, commands, target schema, and notifications** match what is saved in Cloud.
+4. If schema or model contracts change, update app secrets or docs in the same PR when possible.
 
 ## dbt Cloud jobs
 
@@ -79,8 +103,8 @@ For now the recommended workflow is:
 1. Write / edit models locally
 2. `dbt parse` + `dbt compile` to catch obvious errors
 3. Push the feature branch
-4. Run `dbt build` in **dbt Cloud** against the feature branch
-5. Open a PR when the Cloud build passes
+4. Validate before merge: `dbt parse` in CI, and—when you use Athena—`dbt build` locally or via dbt Cloud (ad-hoc or **Jobs**, once those exist)
+5. Open a PR when you are satisfied builds and apps behave as expected
 
 ## Project layout
 
