@@ -24,6 +24,15 @@ clean-targets:         # directories to be removed by `dbt clean`
   - "target"
   - "dbt_packages"
 
+seeds:
+  lakehouse_aws:
+    league_config:
+      +tags: [inseason]
+    faab_remaining:
+      +tags: [inseason]
+    ftn_nfbc_player_overrides:
+      +tags: [inseason]
+
 
 # Configuring models
 # Full documentation: https://docs.getdbt.com/docs/configuring-models

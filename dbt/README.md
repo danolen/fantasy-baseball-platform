@@ -28,28 +28,33 @@ These flows are described in [Manual data maintenance](../README.md#manual-data-
 3. Update the **Production jobs** table above so **cron, commands, target schema, and notifications** match what is saved in Cloud.
 4. If schema or model contracts change, update app secrets or docs in the same PR when possible.
 
-## dbt Cloud jobs
+## Source and seed tags
 
-Production runs are configured in **dbt Cloud** (account URL: [cloud.getdbt.com](https://cloud.getdbt.com/) → your project → **Deploy** → **Jobs**). This section is the **in-repo catalog**: keep it aligned with Cloud so anyone (or a cloud agent) can see **what runs in production and how often** without opening the UI for routine questions.
+Tags live on **sources** (and a few **seeds** used only by the in-season FAAB path) so you can run **`dbt build --select tag:<name>+`**: each tagged root and **everything downstream** of it. That avoids selecting “all ancestors of a mart” (which would always pull e.g. `nfbc.standings` into in-season work even though that feed is really an off-season refresh for SGP).
 
-**At a glance:** Production targets Athena schema **`dbt_main`** (Streamlit production `ATHENA_SCHEMA`; see [`apps/draft-tool/README.md`](../apps/draft-tool/README.md)). dbt Cloud **Environment** variables for production jobs should use that schema unless you intentionally deploy elsewhere. Expect at least one **primary scheduled job** that builds the DAG (typically `dbt build` or the equivalent steps in Cloud). Separately, the repo documents a **weekly** `faab_remaining` seed refresh and an **on-demand** `dbt seed && dbt build` path for FTN / NFBC overrides — see [Manual data maintenance](../README.md#manual-data-maintenance).
+**Typical commands**
 
-### Production jobs
+| Slice | Command |
+|-------|---------|
+| In-season external data + downstream | `dbt build --select tag:inseason+` |
+| Preseason / draft + downstream | `dbt build --select tag:preseason+` |
 
-| Job name | Schedule (cron, UTC) | dbt command / selectors | Target schema | Notifications |
-|----------|------------------------|---------------------------|---------------|---------------|
-| **Primary production build** | *Paste from dbt Cloud → Job → Schedule (note UI timezone; store cron in UTC here).* | *Paste execution commands from Cloud (often a single `dbt build`, or `dbt build` plus selectors).* | `dbt_main` | *Paste from Job → Notifications (Slack, email, webhooks are configured in Cloud only).* |
-| **FAAB remaining seed** | Weekly after NFBC waivers — *set cron in Cloud to match your waiver day/time.* | `dbt seed --select faab_remaining` | `dbt_main` | *Same as the job that runs this command (dedicated job or a step in a larger job).* |
-| **FTN / NFBC player overrides** | On demand (when unmatched FTN players appear in the FAAB app). | `dbt seed && dbt build` (see [Manual data maintenance](../README.md#manual-data-maintenance); narrow commands in Cloud if you later split this into selectors). | `dbt_main` | *Per Job settings in Cloud.* |
+**Caveat:** `mart_weekly_projections` still **refs** preseason and ROS marts as columns. When dbt **builds** nodes selected by `tag:inseason+`, it will still run **parent** models those nodes depend on (so preseason / ROS marts may execute as prerequisites). The benefit of source tagging is which **external roots** you intentionally include in the slice selector—not that cross-slice refs disappear from the graph.
 
-The **FAAB** and **FTN overrides** rows mirror [Manual data maintenance](../README.md#manual-data-maintenance) in the root `README.md`. If you implement them as **steps inside one job** instead of separate jobs, keep one row per **logical** workload but note “step N of job *X*” in the *Job name* or *Commands* column.
+**Where tags are defined**
 
-### Changing a job
+- Source tables: `models/source/*/_sources.yml` (and `_source.yml` for Razzball).
+- In-season seeds: [`dbt_project.yml`](dbt_project.yml) under `seeds:` — `league_config`, `faab_remaining`, `ftn_nfbc_player_overrides`.
 
-1. In dbt Cloud, open **Deploy** → **Jobs** → select the job → edit **Schedule**, **Commands**, **Environment**, or **Notifications** → **Save**.
-2. Optionally run **Run now** and confirm Athena tables and downstream Streamlit apps look correct.
-3. Update the table above so **cron, commands, target schema, and notifications** match what is saved in Cloud (especially after renames or selector changes).
-4. If schema or model contracts change, update app secrets or docs in the same PR when possible.
+**Tag map (summary)**
+
+| Tag | Meaning |
+|-----|---------|
+| `inseason` | External data that updates during the season: NFBC in-season players; Razzball weekly projections; Fangraphs **rest-of-season** projections and rosters (with preseason); FTN FAAB; plus the in-season seeds above. |
+| `preseason` | Draft / preseason inputs (NFBC standings, players, ADP; Fangraphs/Razzball/FTN *preseason* projections; Fangraphs rosters; Underdog ADP). `nfbc.standings` stays here so SGP work does not ride the in-season selector. |
+| *(multi)* | `mapping.player_id_map` is tagged `preseason` and `inseason` because both slices use the ID map. |
+
+Inspect nodes: `dbt ls --select tag:inseason+`.
 
 ## One-time setup
 
