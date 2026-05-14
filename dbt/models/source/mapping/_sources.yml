@@ -6,6 +6,6 @@ sources:
     schema: mapping
     tables:
       - name: player_id_map
-        tags: [preseason, inseason, on_demand]
+        tags: [preseason, inseason]
         external:
           location: s3://dn-lakehouse-dev/mapping/mpd_player_id_map/

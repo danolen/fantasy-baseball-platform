@@ -38,7 +38,6 @@ Tags live on **sources** (and a few **seeds** used only by the in-season FAAB pa
 |-------|---------|
 | In-season external data + downstream | `dbt build --select tag:inseason+` |
 | Preseason / draft + downstream | `dbt build --select tag:preseason+` |
-| Rest-of-season projections + downstream | `dbt build --select tag:on_demand+` |
 
 **Caveat:** `mart_weekly_projections` still **refs** preseason and ROS marts as columns. When dbt **builds** nodes selected by `tag:inseason+`, it will still run **parent** models those nodes depend on (so preseason / ROS marts may execute as prerequisites). The benefit of source tagging is which **external roots** you intentionally include in the slice selector—not that cross-slice refs disappear from the graph.
 
@@ -51,10 +50,9 @@ Tags live on **sources** (and a few **seeds** used only by the in-season FAAB pa
 
 | Tag | Meaning |
 |-----|---------|
-| `inseason` | External data that updates during the season (NFBC in-season players file, Razzball weekly projections, FTN FAAB) plus the seeds above. |
+| `inseason` | External data that updates during the season: NFBC in-season players; Razzball weekly projections; Fangraphs **rest-of-season** projections and rosters (with preseason); FTN FAAB; plus the in-season seeds above. |
 | `preseason` | Draft / preseason inputs (NFBC standings, players, ADP; Fangraphs/Razzball/FTN *preseason* projections; Fangraphs rosters; Underdog ADP). `nfbc.standings` stays here so SGP work does not ride the in-season selector. |
-| `on_demand` | Fangraphs *rest-of-season* projections. `fangraphs.rosters` is tagged **both** `preseason` and `on_demand` so roster joins exist for both slices. |
-| *(multi)* | `mapping.player_id_map` is tagged `preseason`, `inseason`, and `on_demand` because every slice uses the ID map. |
+| *(multi)* | `mapping.player_id_map` is tagged `preseason` and `inseason` because both slices use the ID map. |
 
 Inspect nodes: `dbt ls --select tag:inseason+`.
 

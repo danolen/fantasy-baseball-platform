@@ -14,14 +14,14 @@ sources:
         external:
           location: s3://dn-lakehouse-dev/fangraphs/projections/preseason/pitching/
       - name: rosters
-        tags: [preseason, on_demand]
+        tags: [preseason, inseason]
         external:
           location: s3://dn-lakehouse-dev/fangraphs/rosters/
       - name: projections_rest_of_season_hitting
-        tags: [on_demand]
+        tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/hitting/
       - name: projections_rest_of_season_pitching
-        tags: [on_demand]
+        tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/pitching/
