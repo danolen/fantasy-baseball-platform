@@ -6,17 +6,22 @@ sources:
     schema: razzball
     tables:
       - name: projections_preseason_hitting
+        tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/preseason/hitting/
       - name: projections_preseason_pitching
+        tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/preseason/pitching/
       - name: projections_weekly_hitting
+        tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/weekly/hitting/
       - name: projections_weekly_pitching
+        tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/weekly/pitching/
       - name: projections_weekly_weekend_hitting
+        tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/weekly/weekend_hitting/

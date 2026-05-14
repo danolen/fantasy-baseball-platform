@@ -6,17 +6,22 @@ sources:
     schema: fangraphs
     tables:
       - name: projections_preseason_hitting
+        tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/fangraphs/projections/preseason/hitting/
       - name: projections_preseason_pitching
+        tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/fangraphs/projections/preseason/pitching/
       - name: rosters
+        tags: [preseason, on_demand]
         external:
           location: s3://dn-lakehouse-dev/fangraphs/rosters/
       - name: projections_rest_of_season_hitting
+        tags: [on_demand]
         external:
           location: s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/hitting/
       - name: projections_rest_of_season_pitching
+        tags: [on_demand]
         external:
           location: s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/pitching/

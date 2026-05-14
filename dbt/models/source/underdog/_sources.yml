@@ -6,5 +6,6 @@ sources:
     schema: underdog
     tables:
       - name: adp
+        tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/underdog/adp/

@@ -469,7 +469,7 @@ if st.session_state[cache_key] is None:
             **Troubleshooting:**
             1. Make sure AWS credentials are configured (run `aws configure`)
             2. Check your .env file or environment variables
-            3. Make sure your dbt models are built (`dbt build --select mart_*`)
+            3. Make sure your dbt models are built (e.g. `dbt build --select tag:preseason+` from `dbt/`)
             4. Check that the schema and table names match your setup
             """)
 

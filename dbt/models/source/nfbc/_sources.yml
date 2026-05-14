@@ -6,14 +6,18 @@ sources:
     schema: nfbc
     tables:
       - name: standings
+        tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/nfbc/standings/
       - name: players
+        tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/nfbc/players/
       - name: adp
+        tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/nfbc/adp/
       - name: in_season_players
+        tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/nfbc/in-season-players/

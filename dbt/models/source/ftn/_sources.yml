@@ -6,8 +6,10 @@ sources:
     schema: ftn
     tables:
       - name: projections_preseason
+        tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/ftn/projections/preseason/hitting_and_pitching/
       - name: faab
+        tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/ftn/faab/
