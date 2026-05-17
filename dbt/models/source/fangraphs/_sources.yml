@@ -14,7 +14,7 @@ sources:
         external:
           location: s3://dn-lakehouse-dev/fangraphs/projections/preseason/pitching/
       - name: rosters
-        tags: [preseason, inseason]
+        tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/fangraphs/rosters/
       - name: projections_rest_of_season_hitting
