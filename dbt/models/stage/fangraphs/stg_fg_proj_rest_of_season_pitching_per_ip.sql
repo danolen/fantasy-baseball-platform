@@ -4,6 +4,8 @@
     )
 }}
 
+-- Fangraphs sometimes emits IP = 0 placeholder rows. Dividing counting stats by
+-- IP yields 0/0 -> NaN downstream (SGP, dollar value). Drop those rows here.
 select ids.id,
     ids.name,
     ids.team,
@@ -23,3 +25,4 @@ select ids.id,
 from {{ ref('src_fangraphs_projections_rest_of_season_pitching') }} proj
 inner join {{ ref('stg_mpd_player_id_map') }} ids
     on proj.playerid = ids.idfangraphs
+where cast(proj.ip as double) > 0
