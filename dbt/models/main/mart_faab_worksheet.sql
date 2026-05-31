@@ -68,9 +68,9 @@ select
     wp.next_proj_opps,
     cast(wp.num_g as int) as num_g,
     wp.bats,
-    cast(wp.home_games as int) as home_games,
+    cast(home_games as int) as home_games,
     cast(wp.away_games as int) as away_games,
-    cast(wp.vs_rhp as int) as vs_rhp,
+    cast(vs_rhp as int) as vs_rhp,
     cast(wp.vs_lhp as int) as vs_lhp,
     cast(wp.dollars as double) as dollars,
     cast(wp.dollars_per_game as double) as dollars_per_game,
@@ -86,8 +86,8 @@ select
         when '50s' then wp.ros_50
     end as double) as ros_value,
     ftn.ftn_type,
-    cast(ftn.low_bid as int) as low_bid,
-    cast(ftn.high_bid as int) as high_bid,
+    cast(nullif(ftn.low_bid, '') as int) as low_bid,
+    cast(nullif(ftn.high_bid, '') as int) as high_bid,
     ftn.ftn_notes,
     ftn.bid_change,
     ftn.status_tag,
@@ -100,7 +100,7 @@ select
     cast(
         case
             when wp.my_faab_remaining is null or wp.my_faab_remaining <= 0 then null
-            else cast(ftn.high_bid as double) / wp.my_faab_remaining * 100
+            else cast(nullif(ftn.high_bid, '') as double) / wp.my_faab_remaining * 100
         end as double
     ) as high_bid_pct_of_faab
 from weekly wp
