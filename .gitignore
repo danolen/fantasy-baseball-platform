@@ -11,6 +11,14 @@ context/
 # Cursor stores project plans under the user profile (e.g. ~/.cursor/plans); do not duplicate them in-repo
 docs/plans/
 
+# Terraform (local state / secrets; commit .terraform.lock.hcl after init)
+terraform/**/.terraform/
+terraform/**/*.tfstate
+terraform/**/*.tfstate.*
+terraform/**/backend.hcl
+terraform/**/terraform.tfvars
+!terraform/**/*.example
+
 # Python
 __pycache__/
 *.py[cod]

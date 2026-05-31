@@ -1,0 +1,11 @@
+# Copy to backend.hcl and adjust if you used different bootstrap names.
+#
+#   cp backend.hcl.example backend.hcl
+#
+# backend.hcl is gitignored; do not commit account-specific values.
+
+bucket         = "dn-terraform-state"
+key            = "github_actions_mpd_ingest/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "terraform-state-lock"
+encrypt        = true
