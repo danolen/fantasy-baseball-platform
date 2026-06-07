@@ -1,27 +1,32 @@
 # Terraform state backend (one-time bootstrap)
 
-Terraform needs an S3 bucket and DynamoDB table **before** any module can use a remote backend. These resources are created once by hand (or with the AWS CLI below); they are **not** managed by the modules that depend on them.
+Terraform needs an **S3 bucket** (with versioning enabled) **before** any module can use a remote backend. This bucket is created once by hand (or with the AWS CLI below); it is **not** managed by the modules that depend on it.
+
+State locking uses **S3-native lockfiles** (`use_lockfile = true` in `backend.hcl`; Terraform 1.10+). You do **not** need a DynamoDB table for that path.
 
 ## What you are creating
 
 | Resource | Suggested name | Purpose |
 |----------|----------------|---------|
-| S3 bucket | `dn-terraform-state` | Stores `terraform.tfstate` files |
-| DynamoDB table | `terraform-state-lock` | State locking (`LockID` string hash key) |
+| S3 bucket | `fbp-terraform-state` | Stores `terraform.tfstate` files + S3-native lock sidecars |
 | Region | `us-east-1` | Same region as the lakehouse |
 
-Use different names only if `dn-terraform-state` is already taken globally (S3 bucket names are worldwide unique).
+### Optional: DynamoDB lock table (legacy)
+
+Older docs used `dynamodb_table` in the S3 backend; that argument is **deprecated** in current Terraform in favor of `use_lockfile`. If you already created `terraform-state-lock`, you can keep it unused or delete it after switching your `backend.hcl` to `use_lockfile = true` and running `terraform init -reconfigure` successfully.
+
+Pick a globally unique bucket name if `fbp-terraform-state` is already taken (S3 bucket names are worldwide unique).
 
 ## Prerequisites
 
-- AWS CLI configured with credentials that can create S3 buckets and DynamoDB tables
+- AWS CLI configured with credentials that can create S3 buckets (and DynamoDB only if you still want the legacy table)
 - Account ID noted for later (`aws sts get-caller-identity`)
 
 ## 1. Create the state bucket
 
 ```bash
 export AWS_REGION=us-east-1
-export STATE_BUCKET=dn-terraform-state
+export STATE_BUCKET=fbp-terraform-state
 
 aws s3api create-bucket \
   --bucket "$STATE_BUCKET" \
@@ -43,7 +48,9 @@ aws s3api put-bucket-encryption \
   }'
 ```
 
-## 2. Create the lock table
+## 2. (Optional, legacy) DynamoDB lock table
+
+Skip this if you use `use_lockfile = true` in `backend.hcl` (recommended). Only create the table if you intentionally want deprecated DynamoDB locking:
 
 ```bash
 export LOCK_TABLE=terraform-state-lock

@@ -13,7 +13,9 @@ The Python ingest script and workflow live in the repo root:
 
 ### A. One-time: Terraform state backend
 
-If you have not created the remote state bucket and lock table yet, follow **[../bootstrap/README.md](../bootstrap/README.md)** first.
+If you have not created the remote state bucket yet, follow **[../bootstrap/README.md](../bootstrap/README.md)** first. Use **`use_lockfile = true`** in `backend.hcl` (see `backend.hcl.example`); do not set `dynamodb_table` unless you are intentionally on the deprecated path.
+
+If you already use `dynamodb_table` in `backend.hcl`, switch to `use_lockfile = true`, remove `dynamodb_table`, then run `terraform init -reconfigure -backend-config=backend.hcl` once from this directory.
 
 ### B. Apply this module
 

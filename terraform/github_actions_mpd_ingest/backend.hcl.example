@@ -4,8 +4,9 @@
 #
 # backend.hcl is gitignored; do not commit account-specific values.
 
-bucket         = "dn-terraform-state"
+bucket         = "fbp-terraform-state"
 key            = "github_actions_mpd_ingest/terraform.tfstate"
 region         = "us-east-1"
-dynamodb_table = "terraform-state-lock"
 encrypt        = true
+# S3-native locking (Terraform 1.10+). Replaces deprecated dynamodb_table.
+use_lockfile   = true
