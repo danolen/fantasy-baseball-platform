@@ -1,0 +1,14 @@
+# Copy to terraform.tfvars and adjust as needed.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+
+aws_region            = "us-east-1"
+github_org            = "danolen"
+github_repo           = "fantasy-baseball-platform"
+github_default_branch = "master"
+s3_bucket             = "dn-lakehouse-dev"
+s3_object_prefix      = "mapping/mpd_player_id_map"
+
+# If apply fails because the GitHub OIDC provider already exists:
+# create_github_oidc_provider = false
+# github_oidc_provider_arn    = "arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"

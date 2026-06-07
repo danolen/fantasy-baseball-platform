@@ -339,17 +339,20 @@ _add(
     labels=["phase:1-automation", "area:automation", "quick-win"],
     body=_b("""
         **Outcome**
-        A GitHub Actions workflow that runs weekly (Mon early AM),
-        downloads the latest MPD player ID map, and uploads to
-        `s3://dn-lakehouse-dev/mapping/mpd_player_id_map/year=/month=/day=/`.
+        A GitHub Actions workflow that runs weekly (Sunday 10:00 UTC),
+        downloads the latest MPD player ID map, and overwrites
+        `s3://dn-lakehouse-dev/mapping/mpd_player_id_map/SFBB Player ID Map - PLAYERIDMAP.csv`
+        (no date partitions). AWS access via OIDC + Terraform
+        (`terraform/github_actions_mpd_ingest/`).
 
         **Files / paths likely touched**
         - `.github/workflows/ingest-mpd-player-map.yml`
         - `utils/ingest/mpd_player_map.py`
+        - `terraform/github_actions_mpd_ingest/`
 
         **Acceptance criteria**
         - [ ] Source `mapping.player_id_map` shows fresh data the next
-              Monday after merge.
+              Sunday after merge.
     """),
 )
 
