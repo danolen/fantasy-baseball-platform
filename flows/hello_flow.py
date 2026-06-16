@@ -12,6 +12,10 @@ Run locally without AWS or a Prefect API:
 
 Run locally for real (needs AWS creds that can PutObject on the prefix):
     python flows/hello_flow.py
+
+On Prefect Managed compute there are no ambient AWS credentials, so pass the
+name of an `AwsCredentials` block (see flows/README.md) and the flow will use
+it. Locally, omit it and boto3's default credential chain is used.
 """
 
 from __future__ import annotations
@@ -53,17 +57,38 @@ def build_stamp_body(stamp: datetime) -> str:
     )
 
 
-@task
-def put_object(bucket: str, key: str, body: str) -> str:
-    """Upload the stamp to S3 and return the resulting s3:// URI."""
-    import boto3  # imported lazily so --dry-run needs no AWS SDK at import time
+def _s3_client(aws_credentials_block: str | None):
+    """Return a boto3 S3 client.
 
-    boto3.client("s3").put_object(Bucket=bucket, Key=key, Body=body.encode("utf-8"))
+    If aws_credentials_block is set, load that Prefect `AwsCredentials` block
+    (needed on Prefect Managed compute, which has no ambient AWS creds).
+    Otherwise fall back to boto3's default credential chain (local/CI).
+    """
+    if aws_credentials_block:
+        from prefect_aws import AwsCredentials  # lazy: only needed for this path
+
+        return AwsCredentials.load(aws_credentials_block).get_boto3_session().client("s3")
+
+    import boto3  # lazy so --dry-run needs no AWS SDK at import time
+
+    return boto3.client("s3")
+
+
+@task
+def put_object(bucket: str, key: str, body: str, aws_credentials_block: str | None = None) -> str:
+    """Upload the stamp to S3 and return the resulting s3:// URI."""
+    _s3_client(aws_credentials_block).put_object(
+        Bucket=bucket, Key=key, Body=body.encode("utf-8")
+    )
     return f"s3://{bucket}/{key}"
 
 
 @flow(name="hello-world")
-def hello_world(s3_base_path: str = DEFAULT_S3_BASE, dry_run: bool = False) -> str:
+def hello_world(
+    s3_base_path: str = DEFAULT_S3_BASE,
+    aws_credentials_block: str | None = None,
+    dry_run: bool = False,
+) -> str:
     """Write a stamped file to S3 (or print it, when dry_run=True)."""
     logger = get_run_logger()
     stamp = datetime.now(timezone.utc)
@@ -76,7 +101,7 @@ def hello_world(s3_base_path: str = DEFAULT_S3_BASE, dry_run: bool = False) -> s
         logger.info("DRY RUN — would write to %s:\n%s", target, body)
         return target
 
-    uri = put_object(bucket, key, body)
+    uri = put_object(bucket, key, body, aws_credentials_block)
     logger.info("Wrote %s", uri)
     return uri
 
@@ -89,9 +114,20 @@ if __name__ == "__main__":
         help=f"Base S3 URI (default: {DEFAULT_S3_BASE})",
     )
     parser.add_argument(
+        "--aws-credentials-block",
+        default=None,
+        help="Name of a Prefect AwsCredentials block (for Prefect Managed compute).",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print what would be written instead of calling AWS.",
     )
     args = parser.parse_args()
-    print(hello_world(s3_base_path=args.s3_path, dry_run=args.dry_run))
+    print(
+        hello_world(
+            s3_base_path=args.s3_path,
+            aws_credentials_block=args.aws_credentials_block,
+            dry_run=args.dry_run,
+        )
+    )

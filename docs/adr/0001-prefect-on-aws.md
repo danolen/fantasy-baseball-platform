@@ -1,6 +1,6 @@
 # ADR 0001 — Prefect on AWS for vendor ingestion flows
 
-- **Status:** Proposed (one open decision for the maintainer — see [§7](#7-the-one-open-decision-maintainer-please-pick))
+- **Status:** Accepted — **Option A** (Prefect Cloud Hobby + Prefect Managed serverless). Decided 2026-06-16; see [§7](#7-decision-resolved-option-a).
 - **Date:** 2026-06-16
 - **Ticket:** #43 (A4.1)
 - **Depends on:** nothing
@@ -190,21 +190,20 @@ Takeaways:
 
 ---
 
-## 7. The one open decision (maintainer, please pick)
+## 7. Decision (resolved): Option A
 
-The ticket's acceptance criterion *"hello-world flow runs on Fargate"* assumes
-free-tier ECS push, which **no longer exists**. Pick one:
+The ticket's acceptance criterion *"hello-world flow runs on Fargate"* assumed
+free-tier ECS push, which **no longer exists**. The maintainer chose
+**Option A**: if Prefect Managed serverless serves the project's needs, ECS/
+Fargate is unnecessary. We may move to Option C later, but likely never need to.
 
-- **(A) Accept Managed serverless for now** — $0, no ECS yet. (Recommended;
-  do the ECS spike as Step 2 / a follow-up ticket.) Update the AC to "runs via
-  Prefect Cloud Managed serverless".
-- **(C) Do the ECS spike now** — self-host on Fargate, ~$14–20/mo, more ops, but
-  meets the literal "runs on Fargate" AC and the ECS learning goal sooner.
-- **(B) Raise the budget to $100/mo** for Prefect Starter + ECS push (cleanest
-  ECS experience, over the current ceiling).
-
-This ADR is **Proposed** until that pick is made. Everything else (the flow code
-and image) is decision-independent and shipped in this PR.
+**Consequences of this choice:**
+- The "runs on Fargate" AC is **amended to "runs via Prefect Cloud Managed
+  serverless"** for #43.
+- `terraform/prefect/` stays **unbuilt** (it only exists for the ECS paths).
+- Deployment is config-only via `prefect.yaml` (a Managed work pool) — no Docker
+  image or ECR needed. The `flows/Dockerfile` is kept for a possible future
+  Option C spike but is not on the critical path.
 
 ---
 
@@ -214,13 +213,14 @@ and image) is decision-independent and shipped in this PR.
 - `flows/hello_flow.py` — the hello-world flow: writes a stamped file to
   `s3://dn-lakehouse-dev/_meta/prefect_hello/year=/month=/day=/<timestamp>.txt`.
   Runs locally with `--dry-run` (no AWS/Prefect needed) for fast iteration.
-- `flows/Dockerfile` — the image used by ECS/self-host paths (and a fine base
-  for Managed). Harmless if Option A is chosen.
-- `flows/README.md` — how to run locally and how to `prefect deploy` per option.
+- `flows/Dockerfile` — kept for a future Option C spike; not used by Option A.
+- `prefect.yaml` (repo root) — the Managed-pool deployment for the hello-world
+  flow (Option A): git-clone pull step + `pip_packages`, no image build.
+- `flows/README.md` — how to run locally and the Option A deploy/run cycle.
 
-**Deferred until §7 is decided:** `terraform/prefect/` (ECR + ECS + IAM task
-role + CloudWatch). Building it now would mean guessing the architecture, which
-is the over-engineering driver #4 warns against.
+**Deferred (Option C only):** `terraform/prefect/` (ECR + ECS + IAM task role +
+CloudWatch). Building it now would mean implementing infra for an architecture
+we deliberately did not choose — the over-engineering driver #4 warns against.
 
 ---
 

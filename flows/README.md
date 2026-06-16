@@ -24,28 +24,45 @@ cd flows && pip install . && cd ..
 python flows/hello_flow.py
 ```
 
-## Deploy to Prefect Cloud
+## Deploy to Prefect Cloud (Option A — Managed serverless, the accepted path)
 
-First, once per machine: `prefect cloud login`.
+This is the architecture chosen in the ADR: Prefect Cloud Hobby (free) + a
+Prefect Managed work pool. No AWS infra, no Docker/ECR. Deployment config lives
+in `prefect.yaml` at the repo root.
 
-### Option A — Prefect Managed serverless (free Hobby tier, recommended start)
-
-No AWS infra. Give the flow S3 access via an `AWSCredentials` block (created in
-the Prefect UI or CLI) referenced from the deployment.
+**One-time setup**
 
 ```bash
+# 1. Log in to Prefect Cloud (Hobby tier).
+prefect cloud login
+
+# 2. Create the managed (serverless) work pool referenced by prefect.yaml.
 prefect work-pool create --type prefect:managed managed-pool
-prefect deploy flows/hello_flow.py:hello_world \
-  --name hello-managed --pool managed-pool --cron "0 12 * * *"
+
+# 3. Store AWS creds so the flow can write to S3 from managed compute.
+#    Use an IAM principal scoped to PutObject on s3://dn-lakehouse-dev/_meta/*.
+prefect block register -m prefect_aws
+python -c "from prefect_aws import AwsCredentials; \
+AwsCredentials(aws_access_key_id='AKIA...', aws_secret_access_key='...', \
+region_name='us-east-1').save('fbb-aws')"
+```
+
+**Deploy and run** (the AC's `prefect deploy` + `prefect deployment run` cycle):
+
+```bash
+prefect deploy --name hello-managed
 prefect deployment run "hello-world/hello-managed"
 ```
 
-### Option B/C — AWS ECS / Fargate
+> Hobby tier allows **5 deployments**; hello + 4 vendor flows = 5, so watch that
+> cap. The deployment is unscheduled by default to conserve the 500 free
+> serverless minutes/month — trigger it manually.
 
-Requires the paid Starter plan (push pool) **or** a self-hosted Prefect Server —
-see the ADR. The flow code does not change; only the work pool does. The
-`terraform/prefect/` module for this path is deferred until the open decision in
-the ADR (§7) is made.
+## Later: Option B/C — AWS ECS / Fargate
+
+If the project ever outgrows managed serverless, ECS/Fargate is a work-pool swap
+(the flow code is unchanged) — see the ADR. That path adds a `terraform/prefect/`
+module (ECR, ECS, IAM task role, CloudWatch); not built yet, by design.
 
 ## Verify the result
 
