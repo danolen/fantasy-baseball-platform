@@ -1,0 +1,20 @@
+[project]
+name = "fbb-flows"
+version = "0.1.0"
+description = "Prefect flows for the fantasy-baseball platform (vendor ingestion)."
+requires-python = ">=3.10"
+
+# Pinned to a Prefect 3.x line. prefect-aws provides the AWSCredentials block and
+# the ECS push work-pool integration used by the deployment options in the ADR.
+dependencies = [
+    "prefect>=3.0,<4.0",
+    "prefect-aws>=0.5",
+    "boto3>=1.34",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["hello_flow"]
