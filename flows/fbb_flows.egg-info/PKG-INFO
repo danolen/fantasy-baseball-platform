@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: fbb-flows
+Version: 0.1.0
+Summary: Prefect flows for the fantasy-baseball platform (vendor ingestion).
+Requires-Python: >=3.10
+Requires-Dist: prefect<4.0,>=3.0
+Requires-Dist: prefect-aws>=0.5
+Requires-Dist: boto3>=1.34

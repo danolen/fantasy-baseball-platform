@@ -1,0 +1,3 @@
+prefect<4.0,>=3.0
+prefect-aws>=0.5
+boto3>=1.34
