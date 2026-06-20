@@ -54,6 +54,7 @@ No formal linter is configured in the repo. `ruff check apps/ utils/` can be use
 - No Python test framework (pytest, unittest) is configured.
 - For dbt: `dbt parse` validates model correctness offline. `dbt test` and `dbt build` require AWS credentials.
 - Manual testing is done via the Streamlit apps.
+- **Prefect flows (`flows/`):** run `python flows/<flow>.py --dry-run` to test logic without AWS or a Prefect API. If a fresh `pip install prefect` pulls a too-new `fastapi` (Prefect 3.7.x's ephemeral local server then fails with `'PrefectRouter' object has no attribute 'routes'`), pin `pip install "fastapi<0.116"`. Installing `prefect-aws` alongside `prefect` resolves a compatible `fastapi`/`starlette` automatically, so this pin is only needed when installing bare `prefect`.
 
 ### AWS dependency
 

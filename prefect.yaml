@@ -1,0 +1,34 @@
+# Prefect deployment config (ticket #43, Option A in docs/adr/0001-prefect-on-aws.md).
+#
+# Target: Prefect Cloud Hobby (free) + a Prefect Managed (serverless) work pool.
+# No AWS infra, no Docker image, no ECR. Prefect clones this repo, installs the
+# pip_packages below, and runs the flow on Prefect-managed compute.
+#
+# One-time setup is documented in flows/README.md. Then deploy + run with:
+#   prefect deploy --name hello-managed
+#   prefect deployment run "hello-world/hello-managed"
+
+name: fbb-flows
+prefect-version: ">=3.0,<4.0"
+
+# How Prefect Managed fetches the code at run time.
+pull:
+  - prefect.deployments.steps.git_clone:
+      repository: https://github.com/danolen/fantasy-baseball-platform.git
+      branch: master
+
+deployments:
+  - name: hello-managed
+    entrypoint: flows/hello_flow.py:hello_world
+    # The flow loads this Prefect AwsCredentials block to write to S3 (Managed
+    # compute has no ambient AWS creds). Create it once — see flows/README.md.
+    parameters:
+      aws_credentials_block: fbb-aws
+    work_pool:
+      name: managed-pool
+      job_variables:
+        pip_packages:
+          - prefect-aws>=0.5
+          - boto3>=1.34
+    # No schedule: hello-world is triggered manually to conserve the 500
+    # free serverless minutes/month. Vendor flows (#44-#47) add cron schedules.
