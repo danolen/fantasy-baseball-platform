@@ -22,6 +22,11 @@ terraform/**/terraform.tfvars
 # Python
 __pycache__/
 *.py[cod]
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
 venv/
 .env
 .env.local
