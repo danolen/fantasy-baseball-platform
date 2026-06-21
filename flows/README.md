@@ -49,7 +49,9 @@ again. When the flow fails with an auth/Owner-column error:
 The scheduled flow (daily 8 AM ET) may help keep that session alive between
 manual logins.
 
-**Schedule (Prefect deployment):** daily at 8:00 AM `America/New_York`.
+**Schedule (Prefect deployment):** daily at 8:00 AM `America/New_York`. S3
+date partitions (`year=/month=/day=`) also use `America/New_York` so a run at
+8 AM ET and a manual upload the same calendar day land in the same folder.
 
 ## Deploy to Prefect Cloud (Option A — Managed serverless, the accepted path)
 

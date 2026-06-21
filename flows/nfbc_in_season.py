@@ -4,6 +4,9 @@ Downloads the NFBC players export for each league in ``league_config.csv`` and
 uploads CSVs to:
     s3://dn-lakehouse-dev/nfbc/in-season-players/year=/month=/day=/<league>.csv
 
+Date partitions use ``America/New_York`` so keys align with the daily 8 AM ET
+schedule and manual uploads from ``utils/upload_folder_to_s3.py`` (local date).
+
 Auth uses the ``nfbc_liu`` session cookie from AWS Secrets Manager plus each
 league's ``nfbc_team_id`` from the seed (see ``dbt/seeds/league_config.csv``).
 
@@ -24,9 +27,10 @@ import csv
 import json
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 import requests
 from prefect import flow, get_run_logger, task
@@ -46,6 +50,8 @@ DEFAULT_NFBC_LIU_KEY = "nfbc_liu"
 DEFAULT_SSID = "14"
 DEFAULT_TYPEVAL = "2026"
 DOWNLOAD_TIMEOUT_SECONDS = 120
+# Match manual S3 uploads (local date) and the Prefect schedule timezone.
+PARTITION_TZ = ZoneInfo("America/New_York")
 
 
 class NfbcAuthError(Exception):
@@ -89,6 +95,10 @@ def build_csv_s3_key(base_prefix: str, stamp: datetime, league: str) -> str:
     filename = f"{league}.csv"
     return f"{base_prefix}/{partition}/{filename}" if base_prefix else f"{partition}/{filename}"
 
+
+def partition_stamp(tz: ZoneInfo = PARTITION_TZ) -> datetime:
+    """Return the current wall-clock time in the partition timezone."""
+    return datetime.now(tz)
 
 def load_league_config(path: str | Path) -> list[LeagueConfig]:
     config_path = Path(path)
@@ -272,7 +282,7 @@ def nfbc_in_season(
 ) -> dict:
     """Download NFBC in-season player CSVs for all configured leagues."""
     logger = get_run_logger()
-    stamp = datetime.now(timezone.utc)
+    stamp = partition_stamp()
     bucket, base_prefix = _parse_s3_uri(s3_base_path)
     leagues = load_league_config(league_config_path)
     resolved_download_url = download_url or build_download_url(ssid=ssid, typeval=typeval)
