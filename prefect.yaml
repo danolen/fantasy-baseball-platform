@@ -50,6 +50,7 @@ deployments:
           - prefect-aws>=0.5
           - boto3>=1.34
           - requests>=2.31
+          - curl_cffi>=0.7
 
   - name: fangraphs-ros-managed
     entrypoint: flows/fangraphs_ros.py:fangraphs_ros
@@ -68,3 +69,23 @@ deployments:
           - prefect-aws>=0.5
           - boto3>=1.34
           - requests>=2.31
+          - curl_cffi>=0.7
+
+  - name: ftn-faab-managed
+    entrypoint: flows/ftn_faab.py:ftn_faab
+    description: >-
+      FTN FAAB recommendations download (#46). Daily at 8 AM ET.
+      Projections deferred to #122. dbt Cloud trigger deferred.
+    parameters:
+      aws_credentials_block: fbb-aws
+    schedules:
+      - cron: "0 8 * * *"
+        timezone: America/New_York
+    work_pool:
+      name: managed-pool
+      job_variables:
+        pip_packages:
+          - prefect-aws>=0.5
+          - boto3>=1.34
+          - requests>=2.31
+          - curl_cffi>=0.7
