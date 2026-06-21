@@ -7,6 +7,7 @@ the architecture decisions (control plane, work pool, cost) behind this package.
 |------|---------|
 | `hello_flow.py` | Hello-world smoke test — writes a stamped file to `s3://dn-lakehouse-dev/_meta/prefect_hello/…` (ticket #43). |
 | `nfbc_in_season.py` | NFBC in-season players download → `s3://dn-lakehouse-dev/nfbc/in-season-players/…` (ticket #44). |
+| `fangraphs_ros.py` | FanGraphs ROS projections → `s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/…` (ticket #45). |
 | `pyproject.toml` | Package + pinned deps (`prefect` 3.x, `prefect-aws`, `boto3`, `requests`). |
 | `Dockerfile` | Image for the ECS / self-hosted execution paths. |
 
@@ -17,6 +18,7 @@ No AWS, no Prefect API needed (fastest iteration):
 ```bash
 python flows/hello_flow.py --dry-run
 python flows/nfbc_in_season.py --dry-run
+python flows/fangraphs_ros.py --dry-run
 ```
 
 For real (needs AWS creds that can read Secrets Manager + `s3:PutObject` on the prefix):
@@ -24,7 +26,31 @@ For real (needs AWS creds that can read Secrets Manager + `s3:PutObject` on the 
 ```bash
 cd flows && pip install . && cd ..
 python flows/nfbc_in_season.py
+python flows/fangraphs_ros.py
 ```
+
+## FanGraphs ROS flow (#45)
+
+**Scope:** rest-of-season hitting + pitching projections for all seven systems
+(`atc`, `depthcharts`, `oopsy`, `steamer`, `thebat`, `thebat-x`, `zips`).
+**dbt Cloud job trigger is not wired in this iteration.**
+
+The flow calls FanGraphs' internal `/api/projections` endpoint (the same data
+behind the on-page **Data Export** button) and writes CSVs whose headers match
+the manual export layout (`flows/templates/fangraphs_ros_*_header.csv`).
+
+**Auth:** add a `fangraphs_cookie` key to the `fantasy-baseball-platform`
+secret. Value is the full WordPress session cookie, e.g.
+`wordpress_logged_in_<hash>=dnolen%7C...` (DevTools → Application → Cookies →
+copy **name**=`value` for the `wordpress_logged_in_*` entry). Analytics cookies
+and `fg_is_member` are not required for the API path this flow uses.
+
+**Rotating `fangraphs_cookie`:** when the flow fails with a FanGraphs auth /
+missing-`playerid` error, log in at [fangraphs.com](https://www.fangraphs.com),
+copy a fresh `wordpress_logged_in_*` cookie, and update the secret.
+
+**Schedule (Prefect deployment):** daily at 8:00 AM `America/New_York` (same as
+NFBC). S3 date partitions use `America/New_York`.
 
 ## NFBC in-season flow (#44)
 
@@ -71,6 +97,7 @@ prefect work-pool create --type prefect:managed managed-pool
 # 3. Store AWS creds so the flow can write to S3 from managed compute.
 #    Scope the IAM principal to:
 #      - s3:PutObject on s3://dn-lakehouse-dev/nfbc/in-season-players/*
+#      - s3:PutObject on s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/*
 #      - secretsmanager:GetSecretValue on fantasy-baseball-platform
 prefect block register -m prefect_aws
 python -c "from prefect_aws import AwsCredentials; \
@@ -83,7 +110,9 @@ region_name='us-east-1').save('fbb-aws')"
 ```bash
 prefect deploy --name hello-managed
 prefect deploy --name nfbc-in-season-managed
+prefect deploy --name fangraphs-ros-managed
 prefect deployment run "nfbc-in-season/nfbc-in-season-managed"
+prefect deployment run "fangraphs-ros/fangraphs-ros-managed"
 ```
 
 > Hobby tier allows **5 deployments**; hello + 4 vendor flows = 5, so watch that
@@ -99,5 +128,6 @@ module (ECR, ECS, IAM task role, CloudWatch); not built yet, by design.
 
 ```bash
 aws s3 ls --recursive "s3://dn-lakehouse-dev/nfbc/in-season-players/"
+aws s3 ls --recursive "s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/"
 aws s3 ls --recursive "s3://dn-lakehouse-dev/_meta/prefect_hello/"
 ```
