@@ -11,6 +11,7 @@ dependencies = [
     "prefect-aws>=0.5",
     "boto3>=1.34",
     "requests>=2.31",
+    "curl_cffi>=0.7",
 ]
 
 [build-system]
@@ -18,4 +19,4 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["hello_flow", "nfbc_in_season", "fangraphs_ros"]
+py-modules = ["hello_flow", "nfbc_in_season", "fangraphs_ros", "ftn_faab"]

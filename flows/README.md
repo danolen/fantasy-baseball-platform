@@ -8,6 +8,7 @@ the architecture decisions (control plane, work pool, cost) behind this package.
 | `hello_flow.py` | Hello-world smoke test — writes a stamped file to `s3://dn-lakehouse-dev/_meta/prefect_hello/…` (ticket #43). |
 | `nfbc_in_season.py` | NFBC in-season players download → `s3://dn-lakehouse-dev/nfbc/in-season-players/…` (ticket #44). |
 | `fangraphs_ros.py` | FanGraphs ROS projections → `s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/…` (ticket #45). |
+| `ftn_faab.py` | FTN FAAB recommendations → `s3://dn-lakehouse-dev/ftn/faab/…` (ticket #46). |
 | `pyproject.toml` | Package + pinned deps (`prefect` 3.x, `prefect-aws`, `boto3`, `requests`). |
 | `Dockerfile` | Image for the ECS / self-hosted execution paths. |
 
@@ -19,6 +20,7 @@ No AWS, no Prefect API needed (fastest iteration):
 python flows/hello_flow.py --dry-run
 python flows/nfbc_in_season.py --dry-run
 python flows/fangraphs_ros.py --dry-run
+python flows/ftn_faab.py --dry-run
 ```
 
 For real (needs AWS creds that can read Secrets Manager + `s3:PutObject` on the prefix):
@@ -27,6 +29,7 @@ For real (needs AWS creds that can read Secrets Manager + `s3:PutObject` on the 
 cd flows && pip install . && cd ..
 python flows/nfbc_in_season.py
 python flows/fangraphs_ros.py
+python flows/ftn_faab.py
 ```
 
 ## FanGraphs ROS flow (#45)
@@ -51,6 +54,44 @@ copy a fresh `wordpress_logged_in_*` cookie, and update the secret.
 
 **Schedule (Prefect deployment):** daily at 8:00 AM `America/New_York` (same as
 NFBC). S3 date partitions use `America/New_York`.
+
+## FTN FAAB flow (#46)
+
+**Scope:** 12- and 15-team FAAB CSVs only. FTN projections are tracked in #122.
+**dbt Cloud job trigger is not wired in this iteration.**
+
+Source pages:
+
+- [12-team FAAB](https://ftnfantasy.com/fantasy/mlb/12-team-faab)
+- [15-team FAAB](https://ftnfantasy.com/fantasy/mlb/15-team-faab)
+
+Upload filenames match manual exports in `data/ftn/faab/`:
+
+- `12 Team FAAB 2026.csv`
+- `15 team faab 2026.csv`
+
+**Auth:** add these keys to the `fantasy-baseball-platform` secret (values only,
+not `name=value` — the flow builds the cookie header):
+
+| Key | Source (DevTools → Application → Cookies → `.ftnfantasy.com`) |
+|-----|------------------------------------------------------------------|
+| `ftn_refresh_token` | `refresh_token` |
+| `ftn_access_token` | `access_token` |
+| `ftn_user_id` | `user_id` |
+
+All three are required. FTN refresh (`POST /users/token/refresh`) needs **both**
+JWT cookies; the FAAB table page also requires a valid `access_token`.
+
+The flow fetches each FAAB page with browser impersonation (`curl_cffi`) and
+parses the embedded wpDataTables HTML (same data behind the on-page **CSV**
+button), then writes CSVs with quoted headers matching manual exports.
+
+**Rotating FTN tokens:** when the flow fails with an auth error, log in at
+[ftnfantasy.com](https://ftnfantasy.com), copy fresh `refresh_token`,
+`access_token`, and `user_id`, and update the secret.
+
+**Schedule (Prefect deployment):** daily at 8:00 AM `America/New_York`. S3 date
+partitions use `America/New_York`.
 
 ## NFBC in-season flow (#44)
 
@@ -98,6 +139,7 @@ prefect work-pool create --type prefect:managed managed-pool
 #    Scope the IAM principal to:
 #      - s3:PutObject on s3://dn-lakehouse-dev/nfbc/in-season-players/*
 #      - s3:PutObject on s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/*
+#      - s3:PutObject on s3://dn-lakehouse-dev/ftn/faab/*
 #      - secretsmanager:GetSecretValue on fantasy-baseball-platform
 prefect block register -m prefect_aws
 python -c "from prefect_aws import AwsCredentials; \
@@ -111,12 +153,14 @@ region_name='us-east-1').save('fbb-aws')"
 prefect deploy --name hello-managed
 prefect deploy --name nfbc-in-season-managed
 prefect deploy --name fangraphs-ros-managed
+prefect deploy --name ftn-faab-managed
 prefect deployment run "nfbc-in-season/nfbc-in-season-managed"
 prefect deployment run "fangraphs-ros/fangraphs-ros-managed"
+prefect deployment run "ftn-faab/ftn-faab-managed"
 ```
 
-> Hobby tier allows **5 deployments**; hello + 4 vendor flows = 5, so watch that
-> cap.
+> Hobby tier allows **5 deployments**; hello + nfbc + fangraphs + ftn = 4
+> vendor flows — still within the cap.
 
 ## Later: Option B/C — AWS ECS / Fargate
 
@@ -129,5 +173,6 @@ module (ECR, ECS, IAM task role, CloudWatch); not built yet, by design.
 ```bash
 aws s3 ls --recursive "s3://dn-lakehouse-dev/nfbc/in-season-players/"
 aws s3 ls --recursive "s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/"
+aws s3 ls --recursive "s3://dn-lakehouse-dev/ftn/faab/"
 aws s3 ls --recursive "s3://dn-lakehouse-dev/_meta/prefect_hello/"
 ```
