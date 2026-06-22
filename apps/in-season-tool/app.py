@@ -28,8 +28,6 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("⚾ In-Season Tool")
-
 
 def get_config(key, default=None):
     try:
@@ -121,6 +119,23 @@ def load_roster_slots():
     query = f"SELECT * FROM {ATHENA_SEEDS_SCHEMA}.league_roster_slots"
     return _connect().cursor().execute(query).as_pandas()
 
+
+try:
+    unmatched_df = load_unmatched()
+except Exception:
+    unmatched_df = pd.DataFrame()
+
+unmatched_count = len(unmatched_df)
+
+st.title("⚾ In-Season Tool")
+if unmatched_count > 0:
+    if st.button(
+        f"🟡 {unmatched_count} unmatched FTN players",
+        key="unmatched_ftn_badge",
+        type="tertiary",
+    ):
+        st.session_state["open_unmatched_expander"] = True
+        st.toast("Open the FAAB Worksheet tab to review unmatched players.")
 
 st.sidebar.header("League")
 selected_league = st.sidebar.selectbox("Select League", list(LEAGUES.keys()))
@@ -368,18 +383,17 @@ with tab_faab:
 
     st.dataframe(out, use_container_width=True, hide_index=True, height=700)
 
-    try:
-        unmatched = load_unmatched()
-        if len(unmatched) > 0:
-            with st.expander(f"⚠️ {len(unmatched)} unmatched FTN players"):
-                st.markdown(
-                    "These FTN players could not be matched to an NFBC ID. "
-                    "Add overrides to `dbt/seeds/ftn_nfbc_player_overrides.csv` "
-                    "then run `dbt seed && dbt build`."
-                )
-                st.dataframe(unmatched, use_container_width=True, hide_index=True)
-    except Exception:
-        pass
+    if unmatched_count > 0:
+        with st.expander(
+            f"🟡 {unmatched_count} unmatched FTN players",
+            expanded=st.session_state.get("open_unmatched_expander", False),
+        ):
+            st.markdown(
+                "These FTN players could not be matched to an NFBC ID. "
+                "Add overrides to `dbt/seeds/ftn_nfbc_player_overrides.csv` "
+                "then run `dbt seed && dbt build`."
+            )
+            st.dataframe(unmatched_df, use_container_width=True, hide_index=True)
 
 
 # ---------------------------------------------------------------------------
