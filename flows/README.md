@@ -90,8 +90,8 @@ button), then writes CSVs with quoted headers matching manual exports.
 [ftnfantasy.com](https://ftnfantasy.com), copy fresh `refresh_token`,
 `access_token`, and `user_id`, and update the secret.
 
-**Schedule (Prefect deployment):** daily at 8:00 AM `America/New_York`. S3 date
-partitions use `America/New_York`.
+**Schedule (Prefect deployment):** Saturdays and Sundays at 8:00 AM
+`America/New_York`. S3 date partitions use `America/New_York`.
 
 ## NFBC in-season flow (#44)
 

@@ -72,12 +72,12 @@ deployments:
   - name: ftn-faab-managed
     entrypoint: flows/ftn_faab.py:ftn_faab
     description: >-
-      FTN FAAB recommendations download (#46). Daily at 8 AM ET.
+      FTN FAAB recommendations download (#46). Saturdays and Sundays at 8 AM ET.
       Projections deferred to #122. dbt Cloud trigger deferred.
     parameters:
       aws_credentials_block: fbb-aws
     schedules:
-      - cron: "0 8 * * *"
+      - cron: "0 8 * * 0,6"
         timezone: America/New_York
     work_pool:
       name: managed-pool
