@@ -36,8 +36,8 @@ deployments:
   - name: nfbc-in-season-managed
     entrypoint: flows/nfbc_in_season.py:nfbc_in_season
     description: >-
-      NFBC in-season players download (#44). Daily at 8 AM ET.
-      dbt Cloud trigger deferred until a production job exists.
+      NFBC in-season players + league/overall standings (#44, #119). Daily at
+      8 AM ET. dbt Cloud trigger deferred until a production job exists.
     parameters:
       aws_credentials_block: fbb-aws
     schedules:
@@ -50,6 +50,7 @@ deployments:
           - prefect-aws>=0.5
           - boto3>=1.34
           - requests>=2.31
+          - beautifulsoup4>=4.12
 
   - name: fangraphs-ros-managed
     entrypoint: flows/fangraphs_ros.py:fangraphs_ros

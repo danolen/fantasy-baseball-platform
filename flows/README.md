@@ -110,39 +110,45 @@ Per run, for each league in
 
 Overall (contest-wide) standings are scoped to leagues whose
 `nfbc_overall_game_type_id` is set in the seed — today `nolen_oc` (Online
-Championship, `890`) and `nolen_50` (NFBC 50, `897`).
+Championship, `890`) and `nolen_50` (NFBC 50, `897`). League standings use each
+league's `nfbc_league_id` (also in the seed). Use `--skip-players` /
+`--skip-standings` to run only one slice.
 
-> **Standings ingestion is gated OFF by default** (`include_standings=False`,
-> opt in with `--with-standings`). NFBC has **no authenticated standings CSV
-> endpoint** like players' `api/react/players_download`: the React standings UI
-> builds tables client-side from access-controlled CDN JSON, and the legacy
-> `standings_download.php` path returns the SPA shell (HTTP 403) with the `liu`
-> cookie. The maintainer currently produces standings CSVs by copy-pasting the
-> rendered page.
->
-> **To re-enable:** rework `download_standings_csv` to POST the legacy
-> `standings.data.php` / `standings_overall.data.php` endpoints with the **full**
-> NFBC session cookie (not just `liu`) and parse the returned HTML table into
-> CSV, then flip the default back on. Tracking in #119.
+**How standings work:** NFBC has no standings CSV export, so the flow POSTs the
+same legacy endpoints the standings pages use and parses the returned HTML table
+into CSV (the equivalent of copy-pasting the rendered page):
 
-**Auth:** the flow reads `nfbc_liu` from the `fantasy-baseball-platform` secret in
-`us-east-1` and pairs it with each league's `nfbc_team_id` from
-[`dbt/seeds/league_config.csv`](../dbt/seeds/league_config.csv). Only `liu` +
-`team_id` are required (not the full browser cookie blob). League standings are
-scoped by the `team_id` cookie (like players); overall standings are scoped by
-`nfbc_overall_game_type_id`.
+- League: `POST standings.data.php` with `league_id` (table `#standings_league`).
+- Overall: `POST standings_overall.data.php` with `game_type_id` (table
+  `#standings_overall_1`).
 
-**Rotating `nfbc_liu`:** NFBC session cookies expire or rotate when you log in
-again. When the flow fails with an auth/Owner-column error:
+These legacy endpoints use only the session cookies below — analytics cookies
+(`_ga`, `_gid`, etc.) are not required.
 
-1. Log in at [nfc.shgn.com](https://nfc.shgn.com) on your Mac.
-2. DevTools → Application → Cookies → copy the `liu` value.
-3. Update the `nfbc_liu` key in the `fantasy-baseball-platform` Secrets Manager
-   entry.
+**Auth:** add these keys to the `fantasy-baseball-platform` secret (values only,
+not `name=value` — the flow builds the cookie header):
+
+| Key | Required for | Source (DevTools → Application → Cookies → `nfc.shgn.com`) |
+|-----|--------------|--------------------------------------------------------------|
+| `nfbc_liu` | players, all standings | `liu` |
+| `nfbc_jwt` | league standings only | `jwt` |
+
+Players send `liu` plus each league's `nfbc_team_id` from the seed. Overall
+(contest-wide) standings need only `liu`. League standings also need `jwt` from
+the same browser session as `liu` (copy both values after logging in).
+
+Analytics / tracking cookies are not used. Do **not** paste the full `Cookie`
+request header into Secrets Manager.
+
+**Rotating NFBC cookies:** when the flow fails with an auth error (missing Owner
+column for players, or a missing standings table):
+
+1. Log in at [nfc.shgn.com](https://nfc.shgn.com).
+2. DevTools → Application → Cookies → `nfc.shgn.com` → copy the **Value** for
+   `liu` (and `jwt` if league standings fail).
+3. Update `nfbc_liu` / `nfbc_jwt` in the `fantasy-baseball-platform` Secrets
+   Manager entry.
 4. Re-run the deployment.
-
-The scheduled flow (daily 8 AM ET) may help keep that session alive between
-manual logins.
 
 **Schedule (Prefect deployment):** daily at 8:00 AM `America/New_York`. S3
 date partitions (`year=/month=/day=`) also use `America/New_York` so a run at
