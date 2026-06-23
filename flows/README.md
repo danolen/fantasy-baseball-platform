@@ -108,18 +108,22 @@ Per run, for each league in
 | League standings | `nfbc/in-season-standings/league/…/<league>.csv` | all leagues |
 | Overall standings | `nfbc/in-season-standings/overall/…/<league>.csv` | leagues with `nfbc_overall_game_type_id` |
 
-Overall (contest-wide) standings are downloaded only for leagues whose
+Overall (contest-wide) standings are scoped to leagues whose
 `nfbc_overall_game_type_id` is set in the seed — today `nolen_oc` (Online
-Championship, `890`) and `nolen_50` (NFBC 50, `897`). Both standings types pull
-YTD season standings. Each download is failure-isolated; one failing league or
-contest does not block the others. Use `--skip-players` / `--skip-standings` to
-run only one slice.
+Championship, `890`) and `nolen_50` (NFBC 50, `897`).
 
-> The exact query params for the auth-gated `standings_download.php` /
-> `standings_download_overall.php` endpoints are inferred from the page filter
-> forms; if NFBC rejects them on the first authenticated run, override via the
-> flow's `league_standings_download_url` arg or adjust the `*_STANDINGS_TYPE`
-> constants in `nfbc_in_season.py`.
+> **Standings ingestion is gated OFF by default** (`include_standings=False`,
+> opt in with `--with-standings`). NFBC has **no authenticated standings CSV
+> endpoint** like players' `api/react/players_download`: the React standings UI
+> builds tables client-side from access-controlled CDN JSON, and the legacy
+> `standings_download.php` path returns the SPA shell (HTTP 403) with the `liu`
+> cookie. The maintainer currently produces standings CSVs by copy-pasting the
+> rendered page.
+>
+> **To re-enable:** rework `download_standings_csv` to POST the legacy
+> `standings.data.php` / `standings_overall.data.php` endpoints with the **full**
+> NFBC session cookie (not just `liu`) and parse the returned HTML table into
+> CSV, then flip the default back on. Tracking in #119.
 
 **Auth:** the flow reads `nfbc_liu` from the `fantasy-baseball-platform` secret in
 `us-east-1` and pairs it with each league's `nfbc_team_id` from
