@@ -5,14 +5,17 @@ sources:
     database: AwsDataCatalog
     schema: nfbc
     tables:
+      # Freshness skipped: standings Prefect flow (#44) not deployed yet.
       - name: standings
         tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/nfbc/standings/
+      # Freshness skipped: manual preseason export.
       - name: players
         tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/nfbc/players/
+      # Freshness skipped: daily ADP GHA workflow (#41) not deployed yet.
       - name: adp
         tags: [preseason]
         external:
@@ -21,3 +24,8 @@ sources:
         tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/nfbc/in-season-players/
+        config:
+          loaded_at_query: "{{ source_partition_max_loaded_at('nfbc', 'in_season_players') }}"
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 36, period: hour}

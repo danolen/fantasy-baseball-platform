@@ -1,0 +1,51 @@
+name: dbt source freshness
+
+on:
+  schedule:
+    # 14:00 UTC ≈ 10:00 AM US Eastern during EDT (~2h after 8 AM Prefect ingest).
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: dbt-source-freshness
+  cancel-in-progress: false
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ATHENA_S3_OUTPUT: ${{ vars.ATHENA_S3_OUTPUT }}
+      ATHENA_REGION: us-east-1
+      ATHENA_DATABASE: AwsDataCatalog
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dbt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_GHA_DBT_FRESHNESS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: dbt deps
+        working-directory: dbt
+        run: dbt deps
+
+      - name: dbt source freshness
+        working-directory: dbt
+        run: dbt source freshness

@@ -5,22 +5,27 @@ sources:
     database: AwsDataCatalog
     schema: razzball
     tables:
+      # Freshness skipped: preseason snapshot; no scheduled ingest.
       - name: projections_preseason_hitting
         tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/preseason/hitting/
+      # Freshness skipped: preseason snapshot; no scheduled ingest.
       - name: projections_preseason_pitching
         tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/preseason/pitching/
+      # Freshness skipped: Razzball weekly Prefect flow (#47) not deployed yet.
       - name: projections_weekly_hitting
         tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/weekly/hitting/
+      # Freshness skipped: Razzball weekly Prefect flow (#47) not deployed yet.
       - name: projections_weekly_pitching
         tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/weekly/pitching/
+      # Freshness skipped: Razzball weekend Prefect flow (#47) not deployed yet.
       - name: projections_weekly_weekend_hitting
         tags: [inseason]
         external:

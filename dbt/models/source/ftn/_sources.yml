@@ -5,6 +5,7 @@ sources:
     database: AwsDataCatalog
     schema: ftn
     tables:
+      # Freshness skipped: preseason snapshot; no scheduled ingest.
       - name: projections_preseason
         tags: [preseason]
         external:
@@ -13,3 +14,8 @@ sources:
         tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/ftn/faab/
+        config:
+          loaded_at_query: "{{ source_partition_max_loaded_at('ftn', 'faab') }}"
+          freshness:
+            warn_after: {count: 8, period: day}
+            error_after: {count: 10, period: day}
