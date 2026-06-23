@@ -7,7 +7,7 @@ github_org            = "danolen"
 github_repo           = "fantasy-baseball-platform"
 github_default_branch = "master"
 s3_bucket             = "dn-lakehouse-dev"
-athena_results_prefix = "athena-results"
+athena_results_prefix = "logs/athena-results"
 
 # If apply fails because the GitHub OIDC provider already exists:
 # create_github_oidc_provider = false

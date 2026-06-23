@@ -92,6 +92,7 @@ data "aws_iam_policy_document" "dbt_freshness" {
     actions = [
       "s3:GetObject",
       "s3:ListBucket",
+      "s3:GetBucketLocation",
     ]
     resources = [
       local.lakehouse_bucket,
@@ -99,19 +100,34 @@ data "aws_iam_policy_document" "dbt_freshness" {
     ]
   }
 
+  # ListBucket / GetBucketLocation must target the bucket ARN (not bucket/prefix).
   statement {
-    sid    = "AthenaResultsStaging"
+    sid    = "AthenaResultsBucket"
+    effect = "Allow"
+    actions = [
+      "s3:ListBucket",
+      "s3:GetBucketLocation",
+    ]
+    resources = [local.lakehouse_bucket]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values = [
+        "${local.athena_results_key}/*",
+        local.athena_results_key,
+      ]
+    }
+  }
+
+  statement {
+    sid    = "AthenaResultsObjects"
     effect = "Allow"
     actions = [
       "s3:GetObject",
       "s3:PutObject",
-      "s3:ListBucket",
-      "s3:GetBucketLocation",
     ]
-    resources = [
-      "arn:aws:s3:::${var.s3_bucket}/${local.athena_results_key}",
-      local.athena_results_arn,
-    ]
+    resources = [local.athena_results_arn]
   }
 }
 
