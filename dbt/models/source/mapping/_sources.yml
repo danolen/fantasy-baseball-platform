@@ -9,3 +9,8 @@ sources:
         tags: [preseason, inseason]
         external:
           location: s3://dn-lakehouse-dev/mapping/mpd_player_id_map/
+        config:
+          loaded_at_query: "{{ source_file_modified_max_loaded_at('mapping', 'player_id_map') }}"
+          freshness:
+            warn_after: {count: 8, period: day}
+            error_after: {count: 10, period: day}

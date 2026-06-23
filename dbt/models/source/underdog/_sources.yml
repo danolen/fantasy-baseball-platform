@@ -5,6 +5,7 @@ sources:
     database: AwsDataCatalog
     schema: underdog
     tables:
+      # Freshness skipped: manual preseason upload; no scheduled ingest.
       - name: adp
         tags: [preseason]
         external:

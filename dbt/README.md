@@ -84,6 +84,18 @@ None of the above touches Athena — placeholder AWS values in `profiles.yml`
 are sufficient. If a command complains about credentials, it's trying to
 connect; double-check the command you ran.
 
+## Source freshness (#51)
+
+Five live-ingest sources have `freshness:` blocks in `models/source/*/_sources.yml`
+(scaled to Prefect / GHA cadence). Skipped sources have YAML comments explaining why.
+
+```bash
+dbt source freshness   # requires ATHENA_S3_OUTPUT + AWS creds
+```
+
+Nightly checks run in GitHub Actions (`.github/workflows/dbt-source-freshness.yml`).
+IAM role setup: [`terraform/github_actions_dbt_freshness/README.md`](../terraform/github_actions_dbt_freshness/README.md).
+
 ## Running builds locally (optional, not required)
 
 If you ever want to run `dbt build` / `dbt run` against Athena from your laptop,

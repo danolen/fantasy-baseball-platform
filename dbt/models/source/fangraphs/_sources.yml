@@ -5,14 +5,17 @@ sources:
     database: AwsDataCatalog
     schema: fangraphs
     tables:
+      # Freshness skipped: preseason snapshot; no scheduled ingest.
       - name: projections_preseason_hitting
         tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/fangraphs/projections/preseason/hitting/
+      # Freshness skipped: preseason snapshot; no scheduled ingest.
       - name: projections_preseason_pitching
         tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/fangraphs/projections/preseason/pitching/
+      # Freshness skipped: manual preseason upload.
       - name: rosters
         tags: [preseason]
         external:
@@ -21,7 +24,17 @@ sources:
         tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/hitting/
+        config:
+          loaded_at_query: "{{ source_partition_max_loaded_at('fangraphs', 'projections_rest_of_season_hitting') }}"
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 36, period: hour}
       - name: projections_rest_of_season_pitching
         tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/pitching/
+        config:
+          loaded_at_query: "{{ source_partition_max_loaded_at('fangraphs', 'projections_rest_of_season_pitching') }}"
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 36, period: hour}
