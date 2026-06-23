@@ -1,0 +1,157 @@
+version: 2
+
+models:
+  - name: mart_faab_worksheet
+    description: >-
+      FAAB worksheet rows per league. Grain is (league, nfbc_id) for matched
+      players; FTN-only rows may have null nfbc_id, so uniqueness uses player.
+    columns:
+      - name: league
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('league_config')
+                field: league
+      - name: player
+        data_tests:
+          - not_null
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - league
+              - player
+
+  - name: mart_weekly_lineup_inputs
+    description: One row per (league, owner, nfbc_id).
+    columns:
+      - name: nfbc_id
+        data_tests:
+          - not_null
+      - name: league
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('league_config')
+                field: league
+      - name: format
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['oc', 'me', '50s']
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - league
+              - owner
+              - nfbc_id
+
+  - name: mart_weekly_projections
+    description: One row per (id, league).
+    columns:
+      - name: id
+        data_tests:
+          - not_null
+      - name: league
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('league_config')
+                field: league
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - id
+              - league
+
+  - name: mart_faab_unmatched
+    description: FTN FAAB rows with no NFBC ID match.
+    columns:
+      - name: player_clean
+        data_tests:
+          - not_null
+      - name: league_size
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [12, 15]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - player_clean
+              - league_size
+
+  - name: mart_sgp_factors
+    description: One row per NFBC standings file.
+    columns:
+      - name: _filename
+        data_tests:
+          - unique
+          - not_null
+
+  - name: mart_sgp_percentiles
+    description: One row per (_filename, category).
+    columns:
+      - name: _filename
+        data_tests:
+          - not_null
+      - name: category
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['R', 'HR', 'RBI', 'SB', 'AVG', 'K', 'W', 'S', 'ERA', 'WHIP']
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - _filename
+              - category
+
+  - name: mart_preseason_overall_rankings_oc
+    columns:
+      - name: id
+        data_tests:
+          - unique
+          - not_null
+
+  - name: mart_preseason_overall_rankings_me
+    columns:
+      - name: id
+        data_tests:
+          - unique
+          - not_null
+
+  - name: mart_preseason_overall_rankings_50s
+    columns:
+      - name: id
+        data_tests:
+          - unique
+          - not_null
+
+  - name: mart_rest_of_season_overall_rankings_oc
+    columns:
+      - name: id
+        data_tests:
+          - unique
+          - not_null
+
+  - name: mart_rest_of_season_overall_rankings_me
+    columns:
+      - name: id
+        data_tests:
+          - unique
+          - not_null
+
+  - name: mart_rest_of_season_overall_rankings_50s
+    columns:
+      - name: id
+        data_tests:
+          - unique
+          - not_null
