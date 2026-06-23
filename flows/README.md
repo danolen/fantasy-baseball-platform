@@ -105,7 +105,7 @@ Per run, for each league in
 | Item | S3 prefix | Scope |
 |------|-----------|-------|
 | Players | `nfbc/in-season-players/…/<league>.csv` | all leagues |
-| League standings | `nfbc/in-season-standings/league/…/<league>.csv` | all leagues |
+| League standings | `nfbc/in-season-standings/league/…/<league>.csv` | all leagues — summary + 10 roto category stats/points in one wide CSV |
 | Overall overview | `nfbc/in-season-standings/overall/overview/…/<league>.csv` | leagues with `nfbc_overall_game_type_id` |
 | Overall category stats | `nfbc/in-season-standings/overall/category-stats/…/<league>.csv` | same |
 | Overall category points | `nfbc/in-season-standings/overall/category-points/…/<league>.csv` | same |
@@ -122,7 +122,9 @@ in the seed). Use `--skip-players` / `--skip-standings` to run only one slice.
 same legacy endpoints the standings pages use and parses the returned HTML table
 into CSV (the equivalent of copy-pasting the rendered page):
 
-- League: `POST standings.data.php` with `league_id` (table `#standings_league`).
+- League: `POST standings.data.php` with `league_id` (summary table
+  `#standings_league` plus hitters/pitchers breakdown tables parsed into one wide
+  CSV with `R`, `R_pts`, `HR`, `HR_pts`, … `WHIP`, `WHIP_pts`).
 - Overall: `POST standings_overall.data.php` with `game_type_id` and `view_type`
   (`overview`, `stats`, `points`) → table `#standings_overall_1`.
 
