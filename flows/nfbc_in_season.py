@@ -62,6 +62,15 @@ DEFAULT_OVERALL_STANDINGS_DOWNLOAD = "https://nfc.shgn.com/standings_download_ov
 DEFAULT_LEAGUE_STANDINGS_TYPE = "league_season_standings"
 DEFAULT_OVERALL_STANDINGS_TYPE = "overall_season_standings"
 DEFAULT_LEAGUE_CONFIG = "dbt/seeds/league_config.csv"
+# The legacy standings_download*.php endpoints (unlike the React players API)
+# reject non-browser requests with HTTP 403, so send a browser User-Agent and a
+# Referer pointing at the originating standings page.
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+LEAGUE_STANDINGS_REFERER = "https://nfc.shgn.com/standings"
+OVERALL_STANDINGS_REFERER = "https://nfc.shgn.com/standings_overall"
 DEFAULT_SECRET_NAME = "fantasy-baseball-platform"
 DEFAULT_SECRET_REGION = "us-east-1"
 DEFAULT_NFBC_LIU_KEY = "nfbc_liu"
@@ -314,17 +323,28 @@ def download_standings_csv(
     liu: str,
     team_id: int,
     download_url: str,
+    referer: str | None = None,
     timeout_seconds: int = DOWNLOAD_TIMEOUT_SECONDS,
 ) -> bytes:
     """Download a league or overall standings CSV using the session cookie."""
+    headers = {
+        "Cookie": build_cookie_header(liu, team_id),
+        "User-Agent": BROWSER_USER_AGENT,
+        "Accept": "text/csv,application/csv,application/octet-stream,*/*;q=0.8",
+    }
+    if referer:
+        headers["Referer"] = referer
+
     response = requests.get(
         download_url,
-        headers={"Cookie": build_cookie_header(liu, team_id)},
+        headers=headers,
         timeout=timeout_seconds,
     )
     if response.status_code != 200:
+        snippet = response.text[:200].replace("\n", " ").strip()
         raise NfbcDownloadError(
-            f"NFBC HTTP {response.status_code} for team_id={team_id}"
+            f"NFBC HTTP {response.status_code} for team_id={team_id} "
+            f"(url={download_url}): {snippet}"
         )
 
     body = response.content
@@ -399,6 +419,7 @@ def ingest_standings(
     base_prefix: str,
     stamp: datetime,
     kind: str,
+    referer: str | None,
     aws_credentials_block: str | None,
     dry_run: bool,
 ) -> str:
@@ -421,6 +442,7 @@ def ingest_standings(
         liu=liu,
         team_id=league.nfbc_team_id,
         download_url=download_url,
+        referer=referer,
     )
     uri = put_csv_object(bucket, key, body, aws_credentials_block)
     logger.info("Uploaded %s standings %s (%s bytes)", kind, uri, len(body))
@@ -508,6 +530,7 @@ def nfbc_in_season(
                     base_prefix=league_standings_prefix,
                     stamp=stamp,
                     kind="league",
+                    referer=LEAGUE_STANDINGS_REFERER,
                     aws_credentials_block=aws_credentials_block,
                     dry_run=dry_run,
                 ),
@@ -529,6 +552,7 @@ def nfbc_in_season(
                         base_prefix=overall_standings_prefix,
                         stamp=stamp,
                         kind="overall",
+                        referer=OVERALL_STANDINGS_REFERER,
                         aws_credentials_block=aws_credentials_block,
                         dry_run=dry_run,
                     ),
