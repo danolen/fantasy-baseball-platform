@@ -20,6 +20,16 @@ League standings are scoped by the ``team_id`` cookie (like players); overall
 standings are scoped by the contest's ``nfbc_overall_game_type_id`` (e.g. 890 =
 Online Championship, 897 = NFBC 50).
 
+Standings ingestion is currently GATED OFF by default (``include_standings`` /
+``--with-standings``). NFBC exposes no authenticated standings CSV endpoint
+(unlike players' ``api/react/players_download``); the React standings UI builds
+tables client-side from access-controlled CDN JSON, and the legacy
+``standings_download.php`` path only returns the SPA shell. The maintainer
+produces standings by copy-pasting the rendered page. Re-enabling standings
+requires reworking ``download_standings_csv`` to POST the legacy
+``standings.data.php`` / ``standings_overall.data.php`` endpoints with the full
+NFBC session cookie and parse the returned HTML tables into CSV (see #119).
+
 dbt Cloud job trigger is deferred (no production job yet), consistent with the
 other vendor flows.
 
@@ -326,7 +336,15 @@ def download_standings_csv(
     referer: str | None = None,
     timeout_seconds: int = DOWNLOAD_TIMEOUT_SECONDS,
 ) -> bytes:
-    """Download a league or overall standings CSV using the session cookie."""
+    """Download a league or overall standings CSV using the session cookie.
+
+    NOTE (#119): the targeted ``standings_download.php`` endpoint does NOT return
+    a CSV — with the ``liu`` cookie it returns the React SPA shell with HTTP 403.
+    NFBC has no authenticated standings CSV export. This must be reworked to POST
+    ``standings.data.php`` / ``standings_overall.data.php`` with the full session
+    cookie and parse the returned HTML table into CSV. Standings ingestion is
+    gated off (``include_standings=False``) until that rework lands.
+    """
     headers = {
         "Cookie": build_cookie_header(liu, team_id),
         "User-Agent": BROWSER_USER_AGENT,
@@ -462,7 +480,7 @@ def nfbc_in_season(
     ssid: str = DEFAULT_SSID,
     typeval: str = DEFAULT_TYPEVAL,
     include_players: bool = True,
-    include_standings: bool = True,
+    include_standings: bool = False,
     aws_credentials_block: str | None = None,
     dry_run: bool = False,
 ) -> dict:
@@ -616,9 +634,12 @@ if __name__ == "__main__":
         help="Skip the in-season players download (standings only).",
     )
     parser.add_argument(
-        "--skip-standings",
+        "--with-standings",
         action="store_true",
-        help="Skip the standings downloads (players only).",
+        help=(
+            "Opt in to the standings downloads. Gated off by default: the "
+            "standings endpoint is not yet working (see #119 / module docstring)."
+        ),
     )
     parser.add_argument(
         "--dry-run",
@@ -635,7 +656,7 @@ if __name__ == "__main__":
             secret_region=args.secret_region,
             typeval=args.typeval,
             include_players=not args.skip_players,
-            include_standings=not args.skip_standings,
+            include_standings=args.with_standings,
             aws_credentials_block=args.aws_credentials_block,
             dry_run=args.dry_run,
         )
