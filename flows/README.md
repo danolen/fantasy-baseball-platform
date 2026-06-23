@@ -122,36 +122,33 @@ into CSV (the equivalent of copy-pasting the rendered page):
 - Overall: `POST standings_overall.data.php` with `game_type_id` (table
   `#standings_overall_1`).
 
-These legacy endpoints require the **full** browser session cookie, not just
-`liu` (see auth below).
+These legacy endpoints use only the session cookies below — analytics cookies
+(`_ga`, `_gid`, etc.) are not required.
 
-**Auth:** the flow reads the **full** NFBC session cookie from the
-`nfbc_cookie` key of the `fantasy-baseball-platform` secret in `us-east-1`.
-Players use the `liu` value parsed out of that cookie plus each league's
-`nfbc_team_id`; standings need the full cookie (the legacy `.data.php` endpoints
-reject a `liu`-only cookie). If `nfbc_cookie` is absent the flow falls back to
-the legacy `nfbc_liu` key for players only, and standings are skipped with a
-clear error.
+**Auth:** add these keys to the `fantasy-baseball-platform` secret (values only,
+not `name=value` — the flow builds the cookie header):
 
-To capture the cookie: log into [nfc.shgn.com](https://nfc.shgn.com), DevTools →
-Application → Cookies, copy the entire `Cookie` request header for a request to
-`nfc.shgn.com`, and store it as `nfbc_cookie`. It includes `liu`, so this single
-value covers both players and standings. Rotate it the same way when the flow
-fails with an auth error.
+| Key | Required for | Source (DevTools → Application → Cookies → `nfc.shgn.com`) |
+|-----|--------------|--------------------------------------------------------------|
+| `nfbc_liu` | players, all standings | `liu` |
+| `nfbc_jwt` | league standings only | `jwt` |
 
-**Rotating `nfbc_cookie`:** NFBC sessions expire or rotate when you log in
-again. When the flow fails with an auth error (missing Owner column for players,
-or a missing standings table):
+Players send `liu` plus each league's `nfbc_team_id` from the seed. Overall
+(contest-wide) standings need only `liu`. League standings also need `jwt` from
+the same browser session as `liu` (copy both values after logging in).
 
-1. Log in at [nfc.shgn.com](https://nfc.shgn.com) on your Mac.
-2. DevTools → Network → click any `nfc.shgn.com` request → copy the full
-   `Cookie` request header.
-3. Update the `nfbc_cookie` key in the `fantasy-baseball-platform` Secrets
+Analytics / tracking cookies are not used. Do **not** paste the full `Cookie`
+request header into Secrets Manager.
+
+**Rotating NFBC cookies:** when the flow fails with an auth error (missing Owner
+column for players, or a missing standings table):
+
+1. Log in at [nfc.shgn.com](https://nfc.shgn.com).
+2. DevTools → Application → Cookies → `nfc.shgn.com` → copy the **Value** for
+   `liu` (and `jwt` if league standings fail).
+3. Update `nfbc_liu` / `nfbc_jwt` in the `fantasy-baseball-platform` Secrets
    Manager entry.
 4. Re-run the deployment.
-
-The scheduled flow (daily 8 AM ET) may help keep that session alive between
-manual logins.
 
 **Schedule (Prefect deployment):** daily at 8:00 AM `America/New_York`. S3
 date partitions (`year=/month=/day=`) also use `America/New_York` so a run at
