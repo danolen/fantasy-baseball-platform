@@ -45,7 +45,7 @@ GitHub → **Settings → Secrets and variables → Actions → Variables**:
 | Name | Value |
 |------|--------|
 | `AWS_GHA_DBT_FRESHNESS_ROLE_ARN` | `terraform output -raw github_actions_role_arn` |
-| `ATHENA_S3_OUTPUT` | `terraform output -raw athena_s3_output` (or your existing apps/dbt prefix) |
+| `ATHENA_S3_OUTPUT` | Must match `athena_results_prefix` exactly (full `s3://` URI with trailing slash). Use `terraform output -raw athena_s3_output` after apply. |
 
 ### D. Merge the workflow and test
 
