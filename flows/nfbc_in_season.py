@@ -14,11 +14,22 @@ Files are named after the team/league (matching in-season-players). Date
 partitions use ``America/New_York`` so keys align with the daily 8 AM ET
 schedule and manual uploads from ``utils/upload_folder_to_s3.py`` (local date).
 
-Auth uses the ``nfbc_liu`` session cookie from AWS Secrets Manager plus each
-league's ``nfbc_team_id`` from the seed (see ``dbt/seeds/league_config.csv``).
-League standings are scoped by the ``team_id`` cookie (like players); overall
-standings are scoped by the contest's ``nfbc_overall_game_type_id`` (e.g. 890 =
-Online Championship, 897 = NFBC 50).
+Auth uses the full NFBC session cookie stored in AWS Secrets Manager under the
+``nfbc_cookie`` key (falls back to ``nfbc_liu`` for players only). Players use
+``api/react/players_download`` scoped by each league's ``nfbc_team_id``.
+
+Standings have no NFBC CSV export, so the flow POSTs the legacy
+``standings.data.php`` / ``standings_overall.data.php`` endpoints (the same
+requests the standings pages make) and parses the returned HTML table into CSV:
+
+* league standings: POST ``standings.data.php`` with the league's
+  ``nfbc_league_id`` (table ``#standings_league``).
+* overall standings: POST ``standings_overall.data.php`` with the contest's
+  ``nfbc_overall_game_type_id`` (table ``#standings_overall_1``), only for
+  leagues that set it (890 = Online Championship, 897 = NFBC 50).
+
+These legacy endpoints need the full browser cookie (not just ``liu``), which is
+why ``nfbc_cookie`` is required for standings.
 
 dbt Cloud job trigger is deferred (no production job yet), consistent with the
 other vendor flows.
@@ -34,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import sys
 from dataclasses import dataclass
@@ -54,26 +66,29 @@ from hello_flow import _parse_s3_uri, _s3_client  # noqa: E402
 DEFAULT_S3_BASE = "s3://dn-lakehouse-dev/nfbc/in-season-players"
 DEFAULT_STANDINGS_S3_BASE = "s3://dn-lakehouse-dev/nfbc/in-season-standings"
 DEFAULT_DOWNLOAD_BASE = "https://nfc.shgn.com/api/react/players_download"
-DEFAULT_LEAGUE_STANDINGS_DOWNLOAD = "https://nfc.shgn.com/standings_download.php"
-DEFAULT_OVERALL_STANDINGS_DOWNLOAD = "https://nfc.shgn.com/standings_download_overall.php"
-# Standings filter tokens (YTD season standings). The exact league token is
-# inferred by analogy with the overall page (auth-gated); override via
-# build_*_standings_url if NFBC rejects it on the first authenticated run.
+# Standings are not exported as CSV by NFBC; the flow POSTs the same legacy
+# endpoints the standings pages use and parses the returned HTML tables.
+LEAGUE_STANDINGS_DATA_URL = "https://nfc.shgn.com/standings.data.php"
+OVERALL_STANDINGS_DATA_URL = "https://nfc.shgn.com/standings_overall.data.php"
+LEAGUE_STANDINGS_REFERER = "https://nfc.shgn.com/standings"
+OVERALL_STANDINGS_REFERER = "https://nfc.shgn.com/standings_overall"
+LEAGUE_STANDINGS_TABLE_ID = "standings_league"
+OVERALL_STANDINGS_TABLE_ID = "standings_overall_1"
+# YTD season standings views (matching the maintainer's browser capture).
 DEFAULT_LEAGUE_STANDINGS_TYPE = "league_season_standings"
 DEFAULT_OVERALL_STANDINGS_TYPE = "overall_season_standings"
+DEFAULT_LEAGUE_STANDINGS_VIEW = "classic"
+DEFAULT_OVERALL_STANDINGS_VIEW_TYPE = "overview"
+DEFAULT_SPID = "14"
 DEFAULT_LEAGUE_CONFIG = "dbt/seeds/league_config.csv"
-# The legacy standings_download*.php endpoints (unlike the React players API)
-# reject non-browser requests with HTTP 403, so send a browser User-Agent and a
-# Referer pointing at the originating standings page.
 BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
-LEAGUE_STANDINGS_REFERER = "https://nfc.shgn.com/standings"
-OVERALL_STANDINGS_REFERER = "https://nfc.shgn.com/standings_overall"
 DEFAULT_SECRET_NAME = "fantasy-baseball-platform"
 DEFAULT_SECRET_REGION = "us-east-1"
 DEFAULT_NFBC_LIU_KEY = "nfbc_liu"
+DEFAULT_NFBC_COOKIE_KEY = "nfbc_cookie"
 DEFAULT_SSID = "14"
 DEFAULT_TYPEVAL = "2026"
 DOWNLOAD_TIMEOUT_SECONDS = 120
@@ -93,6 +108,8 @@ class NfbcDownloadError(Exception):
 class LeagueConfig:
     league: str
     nfbc_team_id: int
+    # League id used to POST league standings (from the /standings dropdown).
+    nfbc_league_id: int | None = None
     # Contest game_type_id for overall (contest-wide) standings; None when the
     # league has no overall standings (only nolen_oc / nolen_50 today).
     nfbc_overall_game_type_id: int | None = None
@@ -116,48 +133,51 @@ def build_download_url(
     return f"{DEFAULT_DOWNLOAD_BASE}?{query}"
 
 
-def build_league_standings_url(
+def build_league_standings_form(
+    league_id: int,
     *,
-    ssid: str = DEFAULT_SSID,
-    typeval: str = DEFAULT_TYPEVAL,
-    sport: str = "baseball",
+    spid: str = DEFAULT_SPID,
     standings_type: str = DEFAULT_LEAGUE_STANDINGS_TYPE,
-) -> str:
-    """League standings CSV download (scoped by the team_id cookie)."""
-    query = urlencode(
-        {
-            "sport": sport,
-            "standings_type": standings_type,
-            "typeval": typeval,
-            "ssid": ssid,
-        }
-    )
-    return f"{DEFAULT_LEAGUE_STANDINGS_DOWNLOAD}?{query}"
+    view: str = DEFAULT_LEAGUE_STANDINGS_VIEW,
+) -> dict[str, str]:
+    """POST body for the league standings endpoint."""
+    return {
+        "league_id": str(league_id),
+        "spid": spid,
+        "standings_type": standings_type,
+        "view": view,
+    }
 
 
-def build_overall_standings_url(
-    *,
+def build_overall_standings_form(
     game_type_id: int,
-    ssid: str = DEFAULT_SSID,
-    typeval: str = DEFAULT_TYPEVAL,
+    *,
+    spid: str = DEFAULT_SPID,
     sport: str = "baseball",
     standings_type: str = DEFAULT_OVERALL_STANDINGS_TYPE,
-) -> str:
-    """Overall (contest-wide) standings CSV download, scoped by game_type_id."""
-    query = urlencode(
-        {
-            "sport": sport,
-            "game_type_id": game_type_id,
-            "standings_type": standings_type,
-            "typeval": typeval,
-            "ssid": ssid,
-        }
-    )
-    return f"{DEFAULT_OVERALL_STANDINGS_DOWNLOAD}?{query}"
+    view_type: str = DEFAULT_OVERALL_STANDINGS_VIEW_TYPE,
+) -> dict[str, str]:
+    """POST body for the overall (contest-wide) standings endpoint."""
+    return {
+        "sport": sport,
+        "game_type_id": str(game_type_id),
+        "spid": spid,
+        "standings_type": standings_type,
+        "view_type": view_type,
+    }
 
 
 def build_cookie_header(liu: str, team_id: int) -> str:
     return f"liu={liu.strip()}; team_id={team_id}"
+
+
+def parse_cookie_value(cookie: str, name: str) -> str | None:
+    """Extract a single cookie value (e.g. ``liu``) from a full cookie header."""
+    for part in cookie.split(";"):
+        key, _, value = part.strip().partition("=")
+        if key == name:
+            return value
+    return None
 
 
 def build_csv_s3_key(base_prefix: str, stamp: datetime, league: str) -> str:
@@ -187,10 +207,13 @@ def load_league_config(path: str | Path) -> list[LeagueConfig]:
                 continue
             overall_raw = (row.get("nfbc_overall_game_type_id") or "").strip()
             overall_game_type_id = int(overall_raw) if overall_raw else None
+            league_id_raw = (row.get("nfbc_league_id") or "").strip()
+            league_id = int(league_id_raw) if league_id_raw else None
             leagues.append(
                 LeagueConfig(
                     league=league,
                     nfbc_team_id=int(team_id_raw),
+                    nfbc_league_id=league_id,
                     nfbc_overall_game_type_id=overall_game_type_id,
                 )
             )
@@ -220,27 +243,38 @@ def validate_players_csv(body: bytes) -> None:
         )
 
 
-def validate_standings_csv(body: bytes) -> None:
-    """Ensure the NFBC response looks like a standings CSV (not a login page)."""
-    if not body:
+def standings_html_to_csv(html: str, table_id: str) -> bytes:
+    """Parse an NFBC standings HTML fragment into CSV bytes.
+
+    The standings endpoints return an HTML table (the same one the page renders).
+    Rows with a single cell (the table title) are skipped; the remaining header +
+    data rows are written as CSV (csv quoting handles thousands separators).
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.find("table", id=table_id)
+    if table is None:
         raise NfbcAuthError(
-            "NFBC returned an empty standings response (session may be expired)"
+            f"NFBC standings table #{table_id} not found "
+            "(session cookie likely expired or filter params rejected)"
         )
 
-    text = body.decode("utf-8-sig", errors="replace").lstrip()
-    lowered = text.lower()
-    if lowered.startswith("<!doctype") or lowered.startswith("<html"):
-        raise NfbcAuthError(
-            "NFBC returned HTML instead of standings CSV (session cookie likely "
-            "expired)"
+    rows: list[list[str]] = []
+    for tr in table.find_all("tr"):
+        cells = tr.find_all(["td", "th"])
+        if len(cells) <= 1:
+            continue
+        rows.append([cell.get_text(strip=True) for cell in cells])
+
+    if len(rows) < 2:
+        raise NfbcDownloadError(
+            f"NFBC standings table #{table_id} had no data rows"
         )
 
-    first_line = text.splitlines()[0] if text else ""
-    if "team" not in first_line.lower():
-        raise NfbcAuthError(
-            "NFBC standings CSV is missing the Team column (session cookie likely "
-            "expired or filter params rejected)"
-        )
+    buffer = io.StringIO()
+    csv.writer(buffer).writerows(rows)
+    return buffer.getvalue().encode("utf-8")
 
 
 def _boto3_session(aws_credentials_block: str | None):
@@ -273,22 +307,39 @@ def fetch_secret_json(
     return payload
 
 
-def fetch_nfbc_liu(
+def fetch_nfbc_auth(
     *,
     secret_name: str,
     secret_region: str,
-    secret_key: str,
+    cookie_key: str = DEFAULT_NFBC_COOKIE_KEY,
+    liu_key: str = DEFAULT_NFBC_LIU_KEY,
     aws_credentials_block: str | None = None,
-) -> str:
+) -> tuple[str, str | None]:
+    """Return ``(liu, full_cookie)`` from Secrets Manager.
+
+    Prefers the full ``nfbc_cookie`` (required for standings; ``liu`` is parsed
+    out of it for players). Falls back to the legacy ``nfbc_liu`` key, in which
+    case the returned cookie is ``None`` and standings cannot run.
+    """
     payload = fetch_secret_json(
         secret_name, region=secret_region, aws_credentials_block=aws_credentials_block
     )
-    liu = payload.get(secret_key)
-    if not liu or not str(liu).strip():
+
+    cookie_raw = payload.get(cookie_key)
+    cookie = str(cookie_raw).strip() if cookie_raw and str(cookie_raw).strip() else None
+
+    if cookie:
+        liu = parse_cookie_value(cookie, "liu")
+    else:
+        liu_raw = payload.get(liu_key)
+        liu = str(liu_raw).strip() if liu_raw and str(liu_raw).strip() else None
+
+    if not liu:
         raise ValueError(
-            f"Secret {secret_name} is missing key {secret_key!r} for NFBC auth"
+            f"Secret {secret_name} is missing NFBC auth: set {cookie_key!r} to the "
+            f"full session cookie (preferred) or {liu_key!r} to the liu value"
         )
-    return str(liu).strip()
+    return liu, cookie
 
 
 def download_players_csv(
@@ -320,43 +371,48 @@ def download_players_csv(
 
 def download_standings_csv(
     *,
-    liu: str,
-    team_id: int,
-    download_url: str,
-    referer: str | None = None,
+    cookie: str,
+    post_url: str,
+    form: dict[str, str],
+    table_id: str,
+    referer: str,
     timeout_seconds: int = DOWNLOAD_TIMEOUT_SECONDS,
 ) -> bytes:
-    """Download a league or overall standings CSV using the session cookie."""
-    headers = {
-        "Cookie": build_cookie_header(liu, team_id),
-        "User-Agent": BROWSER_USER_AGENT,
-        "Accept": "text/csv,application/csv,application/octet-stream,*/*;q=0.8",
-    }
-    if referer:
-        headers["Referer"] = referer
+    """POST a legacy standings endpoint and parse the HTML table into CSV.
 
-    response = requests.get(
-        download_url,
-        headers=headers,
+    NFBC has no standings CSV export, so the flow POSTs ``standings.data.php`` /
+    ``standings_overall.data.php`` (the same requests the standings pages make)
+    with the full session cookie and parses the returned HTML table. These legacy
+    endpoints require the full browser cookie, not just ``liu``.
+    """
+    response = requests.post(
+        post_url,
+        data=form,
+        headers={
+            "Cookie": cookie,
+            "User-Agent": BROWSER_USER_AGENT,
+            "Accept": "text/html, */*; q=0.01",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Origin": "https://nfc.shgn.com",
+            "Referer": referer,
+        },
         timeout=timeout_seconds,
     )
     if response.status_code != 200:
         snippet = response.text[:200].replace("\n", " ").strip()
         raise NfbcDownloadError(
-            f"NFBC HTTP {response.status_code} for team_id={team_id} "
-            f"(url={download_url}): {snippet}"
+            f"NFBC HTTP {response.status_code} for {post_url} form={form}: {snippet}"
         )
 
-    body = response.content
     try:
-        validate_standings_csv(body)
-    except NfbcAuthError:
+        return standings_html_to_csv(response.text, table_id)
+    except (NfbcAuthError, NfbcDownloadError):
         raise
     except Exception as exc:
         raise NfbcDownloadError(
-            f"Invalid NFBC standings CSV for team_id={team_id}: {exc}"
+            f"Failed to parse NFBC standings ({post_url} form={form}): {exc}"
         ) from exc
-    return body
 
 
 @task
@@ -413,13 +469,15 @@ def ingest_league(
 def ingest_standings(
     league: LeagueConfig,
     *,
-    liu: str,
-    download_url: str,
+    cookie: str | None,
+    post_url: str,
+    form: dict[str, str],
+    table_id: str,
+    referer: str,
     bucket: str,
     base_prefix: str,
     stamp: datetime,
     kind: str,
-    referer: str | None,
     aws_credentials_block: str | None,
     dry_run: bool,
 ) -> str:
@@ -430,18 +488,25 @@ def ingest_standings(
 
     if dry_run:
         logger.info(
-            "DRY RUN — would download %s standings team_id=%s from %s and upload %s",
+            "DRY RUN — would POST %s %s standings (%s) and upload %s",
+            post_url,
             kind,
-            league.nfbc_team_id,
-            download_url,
+            form,
             target,
         )
         return target
 
+    if not cookie:
+        raise NfbcDownloadError(
+            f"{kind} standings need the full session cookie; set the "
+            f"{DEFAULT_NFBC_COOKIE_KEY!r} secret key"
+        )
+
     body = download_standings_csv(
-        liu=liu,
-        team_id=league.nfbc_team_id,
-        download_url=download_url,
+        cookie=cookie,
+        post_url=post_url,
+        form=form,
+        table_id=table_id,
         referer=referer,
     )
     uri = put_csv_object(bucket, key, body, aws_credentials_block)
@@ -456,11 +521,12 @@ def nfbc_in_season(
     league_config_path: str = DEFAULT_LEAGUE_CONFIG,
     secret_name: str = DEFAULT_SECRET_NAME,
     secret_region: str = DEFAULT_SECRET_REGION,
-    secret_key: str = DEFAULT_NFBC_LIU_KEY,
+    cookie_key: str = DEFAULT_NFBC_COOKIE_KEY,
+    liu_key: str = DEFAULT_NFBC_LIU_KEY,
     download_url: str | None = None,
-    league_standings_download_url: str | None = None,
     ssid: str = DEFAULT_SSID,
     typeval: str = DEFAULT_TYPEVAL,
+    spid: str = DEFAULT_SPID,
     include_players: bool = True,
     include_standings: bool = True,
     aws_credentials_block: str | None = None,
@@ -475,16 +541,15 @@ def nfbc_in_season(
     overall_standings_prefix = f"{standings_base_prefix}/overall".lstrip("/")
     leagues = load_league_config(league_config_path)
     resolved_download_url = download_url or build_download_url(ssid=ssid, typeval=typeval)
-    resolved_league_standings_url = league_standings_download_url or (
-        build_league_standings_url(ssid=ssid, typeval=typeval)
-    )
 
     liu = "dry-run-liu"
+    cookie: str | None = "dry-run-cookie"
     if not dry_run:
-        liu = fetch_nfbc_liu(
+        liu, cookie = fetch_nfbc_auth(
             secret_name=secret_name,
             secret_region=secret_region,
-            secret_key=secret_key,
+            cookie_key=cookie_key,
+            liu_key=liu_key,
             aws_credentials_block=aws_credentials_block,
         )
 
@@ -520,39 +585,50 @@ def nfbc_in_season(
             )
 
         if include_standings:
-            _run(
-                f"{league.league} league-standings",
-                lambda league=league: ingest_standings(
-                    league,
-                    liu=liu,
-                    download_url=resolved_league_standings_url,
-                    bucket=standings_bucket,
-                    base_prefix=league_standings_prefix,
-                    stamp=stamp,
-                    kind="league",
-                    referer=LEAGUE_STANDINGS_REFERER,
-                    aws_credentials_block=aws_credentials_block,
-                    dry_run=dry_run,
-                ),
-            )
+            if league.nfbc_league_id is not None:
+                league_form = build_league_standings_form(
+                    league.nfbc_league_id, spid=spid
+                )
+                _run(
+                    f"{league.league} league-standings",
+                    lambda league=league, league_form=league_form: ingest_standings(
+                        league,
+                        cookie=cookie,
+                        post_url=LEAGUE_STANDINGS_DATA_URL,
+                        form=league_form,
+                        table_id=LEAGUE_STANDINGS_TABLE_ID,
+                        referer=LEAGUE_STANDINGS_REFERER,
+                        bucket=standings_bucket,
+                        base_prefix=league_standings_prefix,
+                        stamp=stamp,
+                        kind="league",
+                        aws_credentials_block=aws_credentials_block,
+                        dry_run=dry_run,
+                    ),
+                )
+            else:
+                logger.warning(
+                    "Skipping league standings for %s (no nfbc_league_id in seed)",
+                    league.league,
+                )
 
             if league.nfbc_overall_game_type_id is not None:
-                overall_url = build_overall_standings_url(
-                    game_type_id=league.nfbc_overall_game_type_id,
-                    ssid=ssid,
-                    typeval=typeval,
+                overall_form = build_overall_standings_form(
+                    league.nfbc_overall_game_type_id, spid=spid
                 )
                 _run(
                     f"{league.league} overall-standings",
-                    lambda league=league, overall_url=overall_url: ingest_standings(
+                    lambda league=league, overall_form=overall_form: ingest_standings(
                         league,
-                        liu=liu,
-                        download_url=overall_url,
+                        cookie=cookie,
+                        post_url=OVERALL_STANDINGS_DATA_URL,
+                        form=overall_form,
+                        table_id=OVERALL_STANDINGS_TABLE_ID,
+                        referer=OVERALL_STANDINGS_REFERER,
                         bucket=standings_bucket,
                         base_prefix=overall_standings_prefix,
                         stamp=stamp,
                         kind="overall",
-                        referer=OVERALL_STANDINGS_REFERER,
                         aws_credentials_block=aws_credentials_block,
                         dry_run=dry_run,
                     ),
