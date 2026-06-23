@@ -106,21 +106,25 @@ Per run, for each league in
 |------|-----------|-------|
 | Players | `nfbc/in-season-players/…/<league>.csv` | all leagues |
 | League standings | `nfbc/in-season-standings/league/…/<league>.csv` | all leagues |
-| Overall standings | `nfbc/in-season-standings/overall/…/<league>.csv` | leagues with `nfbc_overall_game_type_id` |
+| Overall overview | `nfbc/in-season-standings/overall/overview/…/<league>.csv` | leagues with `nfbc_overall_game_type_id` |
+| Overall category stats | `nfbc/in-season-standings/overall/category-stats/…/<league>.csv` | same |
+| Overall category points | `nfbc/in-season-standings/overall/category-points/…/<league>.csv` | same |
 
 Overall (contest-wide) standings are scoped to leagues whose
 `nfbc_overall_game_type_id` is set in the seed — today `nolen_oc` (Online
-Championship, `890`) and `nolen_50` (NFBC 50, `897`). League standings use each
-league's `nfbc_league_id` (also in the seed). Use `--skip-players` /
-`--skip-standings` to run only one slice.
+Championship, `890`) and `nolen_50` (NFBC 50, `897`). Each contest uploads
+**three** overall views matching the [standings_overall](https://nfc.shgn.com/standings_overall)
+dropdown: overview, category stats (`view_type=stats`), and category points
+(`view_type=points`). League standings use each league's `nfbc_league_id` (also
+in the seed). Use `--skip-players` / `--skip-standings` to run only one slice.
 
 **How standings work:** NFBC has no standings CSV export, so the flow POSTs the
 same legacy endpoints the standings pages use and parses the returned HTML table
 into CSV (the equivalent of copy-pasting the rendered page):
 
 - League: `POST standings.data.php` with `league_id` (table `#standings_league`).
-- Overall: `POST standings_overall.data.php` with `game_type_id` (table
-  `#standings_overall_1`).
+- Overall: `POST standings_overall.data.php` with `game_type_id` and `view_type`
+  (`overview`, `stats`, `points`) → table `#standings_overall_1`.
 
 These legacy endpoints use only the session cookies below — analytics cookies
 (`_ga`, `_gid`, etc.) are not required.
