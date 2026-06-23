@@ -6,9 +6,11 @@ For each league in ``league_config.csv`` this flow downloads and uploads:
     s3://dn-lakehouse-dev/nfbc/in-season-players/year=/month=/day=/<league>.csv
 * league standings export ->
     s3://dn-lakehouse-dev/nfbc/in-season-standings/league/year=/month=/day=/<league>.csv
-* overall (contest-wide) standings export, only for leagues that set
-  ``nfbc_overall_game_type_id`` in the seed ->
-    s3://dn-lakehouse-dev/nfbc/in-season-standings/overall/year=/month=/day=/<league>.csv
+* overall (contest-wide) standings exports, only for leagues that set
+  ``nfbc_overall_game_type_id`` in the seed (three views per contest) ->
+    s3://dn-lakehouse-dev/nfbc/in-season-standings/overall/overview/year=/month=/day=/<league>.csv
+    s3://dn-lakehouse-dev/nfbc/in-season-standings/overall/category-stats/year=/month=/day=/<league>.csv
+    s3://dn-lakehouse-dev/nfbc/in-season-standings/overall/category-points/year=/month=/day=/<league>.csv
 
 Files are named after the team/league (matching in-season-players). Date
 partitions use ``America/New_York`` so keys align with the daily 8 AM ET
@@ -24,10 +26,12 @@ Standings have no NFBC CSV export, so the flow POSTs the legacy
 requests the standings pages make) and parses the returned HTML table into CSV:
 
 * league standings: POST ``standings.data.php`` with the league's
-  ``nfbc_league_id`` (table ``#standings_league``).
+  ``nfbc_league_id`` (summary table ``#standings_league`` plus hitters/pitchers
+  breakdown tables with all 10 roto category stats and points).
 * overall standings: POST ``standings_overall.data.php`` with the contest's
-  ``nfbc_overall_game_type_id`` (table ``#standings_overall_1``), only for
-  leagues that set it (890 = Online Championship, 897 = NFBC 50).
+  ``nfbc_overall_game_type_id`` and ``view_type`` (table ``#standings_overall_1``),
+  only for leagues that set it (890 = Online Championship, 897 = NFBC 50).
+  Views: ``overview``, ``stats`` (category stats), ``points`` (category points).
 
 Analytics cookies (``_ga``, ``_gid``, etc.) are not required for any endpoint.
 
@@ -74,11 +78,17 @@ LEAGUE_STANDINGS_REFERER = "https://nfc.shgn.com/standings"
 OVERALL_STANDINGS_REFERER = "https://nfc.shgn.com/standings_overall"
 LEAGUE_STANDINGS_TABLE_ID = "standings_league"
 OVERALL_STANDINGS_TABLE_ID = "standings_overall_1"
+LEAGUE_HITTER_CATEGORIES = ("R", "HR", "RBI", "SB", "AVG")
+LEAGUE_PITCHER_CATEGORIES = ("K", "W", "SV", "ERA", "WHIP")
+LEAGUE_ROTO_CATEGORIES = LEAGUE_HITTER_CATEGORIES + LEAGUE_PITCHER_CATEGORIES
 # YTD season standings views (matching the maintainer's browser capture).
 DEFAULT_LEAGUE_STANDINGS_TYPE = "league_season_standings"
 DEFAULT_OVERALL_STANDINGS_TYPE = "overall_season_standings"
 DEFAULT_LEAGUE_STANDINGS_VIEW = "classic"
 DEFAULT_OVERALL_STANDINGS_VIEW_TYPE = "overview"
+OVERALL_VIEW_OVERVIEW = "overview"
+OVERALL_VIEW_CATEGORY_STATS = "stats"
+OVERALL_VIEW_CATEGORY_POINTS = "points"
 DEFAULT_SPID = "14"
 DEFAULT_LEAGUE_CONFIG = "dbt/seeds/league_config.csv"
 BROWSER_USER_AGENT = (
@@ -110,6 +120,23 @@ class NfbcAuth:
 
     liu: str
     jwt: str | None = None
+
+
+@dataclass(frozen=True)
+class OverallStandingsView:
+    """One overall-standings slice from the NFBC standings_overall page."""
+
+    # S3 subdir under nfbc/in-season-standings/overall/
+    slug: str
+    # POST body view_type (maps to the page dropdown).
+    view_type: str
+
+
+OVERALL_STANDINGS_VIEWS: tuple[OverallStandingsView, ...] = (
+    OverallStandingsView(slug="overview", view_type=OVERALL_VIEW_OVERVIEW),
+    OverallStandingsView(slug="category-stats", view_type=OVERALL_VIEW_CATEGORY_STATS),
+    OverallStandingsView(slug="category-points", view_type=OVERALL_VIEW_CATEGORY_POINTS),
+)
 
 
 @dataclass(frozen=True)
@@ -276,6 +303,132 @@ def validate_players_csv(body: bytes) -> None:
         )
 
 
+def dedupe_standings_headers(headers: list[str]) -> list[str]:
+    """Make duplicate NFBC column labels unique for CSV output.
+
+    Category-stats tables repeat ``H`` (batting hits vs pitcher hits allowed).
+    """
+    seen: dict[str, int] = {}
+    normalized: list[str] = []
+    for header in headers:
+        key = header.strip()
+        if key not in seen:
+            seen[key] = 0
+            normalized.append(key)
+            continue
+        if key == "H":
+            normalized.append("HA")
+        else:
+            seen[key] += 1
+            normalized.append(f"{key}_{seen[key]}")
+    return normalized
+
+
+def _parse_breakdown_categories(table) -> dict[str, dict[str, tuple[str, str]]]:
+    """Parse a hitters/pitchers breakdown table into per-team category stats.
+
+    Each category section is stacked vertically: header row (Rk, Team, CAT, Pts, …)
+    followed by one row per team.
+    """
+    team_stats: dict[str, dict[str, tuple[str, str]]] = {}
+    current_category: str | None = None
+
+    for tr in table.find_all("tr"):
+        cells = [cell.get_text(strip=True) for cell in tr.find_all(["td", "th"])]
+        if len(cells) <= 1:
+            current_category = None
+            continue
+        if cells[0] == "Rk":
+            if len(cells) >= 4:
+                current_category = cells[2]
+            continue
+        if current_category and cells[0].isdigit() and len(cells) >= 4:
+            team = cells[1]
+            team_stats.setdefault(team, {})[current_category] = (cells[2], cells[3])
+
+    return team_stats
+
+
+def lookup_breakdown_team(
+    summary_team: str,
+    breakdown: dict[str, dict[str, tuple[str, str]]],
+) -> dict[str, tuple[str, str]]:
+    """Match a summary-table team name to breakdown rows (handles suffix drift)."""
+    if summary_team in breakdown:
+        return breakdown[summary_team]
+
+    best_match: dict[str, tuple[str, str]] | None = None
+    best_overlap = -1
+    for breakdown_team, categories in breakdown.items():
+        if summary_team.startswith(breakdown_team) or breakdown_team.startswith(summary_team):
+            overlap = min(len(summary_team), len(breakdown_team))
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_match = categories
+
+    return best_match or {}
+
+
+def league_standings_html_to_csv(html: str) -> bytes:
+    """Parse league standings HTML into one wide CSV (summary + roto categories)."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    summary_table = soup.find("table", id=LEAGUE_STANDINGS_TABLE_ID)
+    if summary_table is None:
+        raise NfbcAuthError(
+            f"NFBC standings table #{LEAGUE_STANDINGS_TABLE_ID} not found "
+            "(session cookie likely expired or filter params rejected)"
+        )
+
+    summary_header: list[str] | None = None
+    summary_rows: list[list[str]] = []
+    for tr in summary_table.find_all("tr"):
+        cells = tr.find_all(["td", "th"])
+        if len(cells) <= 1:
+            continue
+        row = [cell.get_text(strip=True) for cell in cells]
+        if summary_header is None:
+            summary_header = row
+            continue
+        summary_rows.append(row)
+
+    if not summary_header or not summary_rows:
+        raise NfbcDownloadError(
+            f"NFBC standings table #{LEAGUE_STANDINGS_TABLE_ID} had no data rows"
+        )
+
+    breakdown: dict[str, dict[str, tuple[str, str]]] = {}
+    stat_div = soup.find("div", class_="statStandings")
+    if stat_div:
+        for table in stat_div.find_all("table"):
+            for team, categories in _parse_breakdown_categories(table).items():
+                breakdown.setdefault(team, {}).update(categories)
+
+    if not breakdown:
+        raise NfbcDownloadError(
+            "League standings response missing hitters/pitchers breakdown tables"
+        )
+
+    category_columns: list[str] = []
+    for category in LEAGUE_ROTO_CATEGORIES:
+        category_columns.extend([category, f"{category}_pts"])
+
+    team_idx = summary_header.index("Team")
+    output_rows = [summary_header + category_columns]
+    for row in summary_rows:
+        team_categories = lookup_breakdown_team(row[team_idx], breakdown)
+        category_values: list[str] = []
+        for category in LEAGUE_ROTO_CATEGORIES:
+            stat, points = team_categories.get(category, ("", ""))
+            category_values.extend([stat, points])
+        output_rows.append(row + category_values)
+
+    buffer = io.StringIO()
+    csv.writer(buffer).writerows(output_rows)
+    return buffer.getvalue().encode("utf-8")
+
+
 def standings_html_to_csv(html: str, table_id: str) -> bytes:
     """Parse an NFBC standings HTML fragment into CSV bytes.
 
@@ -304,6 +457,8 @@ def standings_html_to_csv(html: str, table_id: str) -> bytes:
         raise NfbcDownloadError(
             f"NFBC standings table #{table_id} had no data rows"
         )
+
+    rows[0] = dedupe_standings_headers(rows[0])
 
     buffer = io.StringIO()
     csv.writer(buffer).writerows(rows)
@@ -446,6 +601,8 @@ def download_standings_csv(
         )
 
     try:
+        if kind == "league":
+            return league_standings_html_to_csv(response.text)
         return standings_html_to_csv(response.text, table_id)
     except (NfbcAuthError, NfbcDownloadError):
         raise
@@ -518,6 +675,7 @@ def ingest_standings(
     base_prefix: str,
     stamp: datetime,
     kind: str,
+    slice_label: str = "",
     aws_credentials_block: str | None,
     dry_run: bool,
 ) -> str:
@@ -525,12 +683,13 @@ def ingest_standings(
     logger = get_run_logger()
     key = build_csv_s3_key(base_prefix, stamp, league.league)
     target = f"s3://{bucket}/{key}"
+    label = f"{kind} {slice_label}".strip()
 
     if dry_run:
         logger.info(
             "DRY RUN — would POST %s %s standings (%s) and upload %s",
             post_url,
-            kind,
+            label,
             form,
             target,
         )
@@ -545,7 +704,7 @@ def ingest_standings(
         referer=referer,
     )
     uri = put_csv_object(bucket, key, body, aws_credentials_block)
-    logger.info("Uploaded %s standings %s (%s bytes)", kind, uri, len(body))
+    logger.info("Uploaded %s standings %s (%s bytes)", label, uri, len(body))
     return uri
 
 
@@ -573,7 +732,7 @@ def nfbc_in_season(
     bucket, base_prefix = _parse_s3_uri(s3_base_path)
     standings_bucket, standings_base_prefix = _parse_s3_uri(standings_s3_base_path)
     league_standings_prefix = f"{standings_base_prefix}/league".lstrip("/")
-    overall_standings_prefix = f"{standings_base_prefix}/overall".lstrip("/")
+    overall_standings_base = f"{standings_base_prefix}/overall".lstrip("/")
     leagues = load_league_config(league_config_path)
     resolved_download_url = download_url or build_download_url(ssid=ssid, typeval=typeval)
 
@@ -647,26 +806,36 @@ def nfbc_in_season(
                 )
 
             if league.nfbc_overall_game_type_id is not None:
-                overall_form = build_overall_standings_form(
-                    league.nfbc_overall_game_type_id, spid=spid
-                )
-                _run(
-                    f"{league.league} overall-standings",
-                    lambda league=league, overall_form=overall_form: ingest_standings(
-                        league,
-                        auth=auth,
-                        post_url=OVERALL_STANDINGS_DATA_URL,
-                        form=overall_form,
-                        table_id=OVERALL_STANDINGS_TABLE_ID,
-                        referer=OVERALL_STANDINGS_REFERER,
-                        bucket=standings_bucket,
-                        base_prefix=overall_standings_prefix,
-                        stamp=stamp,
-                        kind="overall",
-                        aws_credentials_block=aws_credentials_block,
-                        dry_run=dry_run,
-                    ),
-                )
+                for overall_view in OVERALL_STANDINGS_VIEWS:
+                    overall_form = build_overall_standings_form(
+                        league.nfbc_overall_game_type_id,
+                        spid=spid,
+                        view_type=overall_view.view_type,
+                    )
+                    overall_prefix = (
+                        f"{overall_standings_base}/{overall_view.slug}".lstrip("/")
+                    )
+                    _run(
+                        f"{league.league} overall-{overall_view.slug}",
+                        lambda league=league,
+                        overall_form=overall_form,
+                        overall_prefix=overall_prefix,
+                        overall_view=overall_view: ingest_standings(
+                            league,
+                            auth=auth,
+                            post_url=OVERALL_STANDINGS_DATA_URL,
+                            form=overall_form,
+                            table_id=OVERALL_STANDINGS_TABLE_ID,
+                            referer=OVERALL_STANDINGS_REFERER,
+                            bucket=standings_bucket,
+                            base_prefix=overall_prefix,
+                            stamp=stamp,
+                            kind="overall",
+                            slice_label=overall_view.slug,
+                            aws_credentials_block=aws_credentials_block,
+                            dry_run=dry_run,
+                        ),
+                    )
 
     summary = {"successes": successes, "failures": failures}
     logger.info("NFBC in-season ingest complete: %s", summary)
