@@ -6,7 +6,7 @@ the architecture decisions (control plane, work pool, cost) behind this package.
 | File | Purpose |
 |------|---------|
 | `hello_flow.py` | Hello-world smoke test — writes a stamped file to `s3://dn-lakehouse-dev/_meta/prefect_hello/…` (ticket #43). |
-| `nfbc_in_season.py` | NFBC in-season players download → `s3://dn-lakehouse-dev/nfbc/in-season-players/…` (ticket #44). |
+| `nfbc_in_season.py` | NFBC in-season players → `s3://dn-lakehouse-dev/nfbc/in-season-players/…` (#44) plus league + overall standings → `s3://dn-lakehouse-dev/nfbc/in-season-standings/{league,overall}/…` (#119). |
 | `fangraphs_ros.py` | FanGraphs ROS projections → `s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/…` (ticket #45). |
 | `ftn_faab.py` | FTN FAAB recommendations → `s3://dn-lakehouse-dev/ftn/faab/…` (ticket #46). |
 | `pyproject.toml` | Package + pinned deps (`prefect` 3.x, `prefect-aws`, `boto3`, `requests`). |
@@ -93,16 +93,40 @@ button), then writes CSVs with quoted headers matching manual exports.
 **Schedule (Prefect deployment):** Saturdays and Sundays at 8:00 AM
 `America/New_York`. S3 date partitions use `America/New_York`.
 
-## NFBC in-season flow (#44)
+## NFBC in-season flow (#44, #119)
 
-**Scope:** in-season players CSV only. Standings are tracked in #119. **dbt Cloud
-job trigger is not wired in this iteration** — run `dbt build --select tag:inseason+`
-manually or add a Cloud job later.
+**Scope:** in-season players CSV (#44) plus league and overall standings (#119).
+**dbt Cloud job trigger is not wired in this iteration** — run
+`dbt build --select tag:inseason+` manually or add a Cloud job later.
+
+Per run, for each league in
+[`dbt/seeds/league_config.csv`](../dbt/seeds/league_config.csv) the flow uploads:
+
+| Item | S3 prefix | Scope |
+|------|-----------|-------|
+| Players | `nfbc/in-season-players/…/<league>.csv` | all leagues |
+| League standings | `nfbc/in-season-standings/league/…/<league>.csv` | all leagues |
+| Overall standings | `nfbc/in-season-standings/overall/…/<league>.csv` | leagues with `nfbc_overall_game_type_id` |
+
+Overall (contest-wide) standings are downloaded only for leagues whose
+`nfbc_overall_game_type_id` is set in the seed — today `nolen_oc` (Online
+Championship, `890`) and `nolen_50` (NFBC 50, `897`). Both standings types pull
+YTD season standings. Each download is failure-isolated; one failing league or
+contest does not block the others. Use `--skip-players` / `--skip-standings` to
+run only one slice.
+
+> The exact query params for the auth-gated `standings_download.php` /
+> `standings_download_overall.php` endpoints are inferred from the page filter
+> forms; if NFBC rejects them on the first authenticated run, override via the
+> flow's `league_standings_download_url` arg or adjust the `*_STANDINGS_TYPE`
+> constants in `nfbc_in_season.py`.
 
 **Auth:** the flow reads `nfbc_liu` from the `fantasy-baseball-platform` secret in
 `us-east-1` and pairs it with each league's `nfbc_team_id` from
 [`dbt/seeds/league_config.csv`](../dbt/seeds/league_config.csv). Only `liu` +
-`team_id` are required (not the full browser cookie blob).
+`team_id` are required (not the full browser cookie blob). League standings are
+scoped by the `team_id` cookie (like players); overall standings are scoped by
+`nfbc_overall_game_type_id`.
 
 **Rotating `nfbc_liu`:** NFBC session cookies expire or rotate when you log in
 again. When the flow fails with an auth/Owner-column error:
@@ -138,6 +162,7 @@ prefect work-pool create --type prefect:managed managed-pool
 # 3. Store AWS creds so the flow can write to S3 from managed compute.
 #    Scope the IAM principal to:
 #      - s3:PutObject on s3://dn-lakehouse-dev/nfbc/in-season-players/*
+#      - s3:PutObject on s3://dn-lakehouse-dev/nfbc/in-season-standings/*
 #      - s3:PutObject on s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/*
 #      - s3:PutObject on s3://dn-lakehouse-dev/ftn/faab/*
 #      - secretsmanager:GetSecretValue on fantasy-baseball-platform
@@ -172,6 +197,7 @@ module (ECR, ECS, IAM task role, CloudWatch); not built yet, by design.
 
 ```bash
 aws s3 ls --recursive "s3://dn-lakehouse-dev/nfbc/in-season-players/"
+aws s3 ls --recursive "s3://dn-lakehouse-dev/nfbc/in-season-standings/"
 aws s3 ls --recursive "s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/"
 aws s3 ls --recursive "s3://dn-lakehouse-dev/ftn/faab/"
 aws s3 ls --recursive "s3://dn-lakehouse-dev/_meta/prefect_hello/"
