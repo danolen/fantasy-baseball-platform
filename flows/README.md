@@ -156,6 +156,17 @@ column for players, or a missing standings table):
    Manager entry.
 4. Re-run the deployment.
 
+Copy cookie **values only** — not URL-encoded wrappers like `%22eyJ...%22` and
+not `name=value` prefixes. The flow normalizes those when present, but raw
+values from DevTools are safest.
+
+**League standings HTTP 403 (Cloudflare):** if overall standings succeed but
+league standings fail with `cf-mitigated: challenge`, NFBC's `/standings` path
+is blocking automated/datacenter traffic — not an expired `jwt`. Prefect Managed
+cannot pass Cloudflare's interactive challenge. Workarounds: upload league
+standings manually (`utils/upload_folder_to_s3.py`), run the flow from a
+non-datacenter IP, or move league standings ingest off Managed compute.
+
 **Schedule (Prefect deployment):** daily at 8:00 AM `America/New_York`. S3
 date partitions (`year=/month=/day=`) also use `America/New_York` so a run at
 8 AM ET and a manual upload the same calendar day land in the same folder.
