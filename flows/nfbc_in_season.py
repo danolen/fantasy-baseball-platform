@@ -55,7 +55,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode
 from zoneinfo import ZoneInfo
 
 import requests
@@ -202,13 +202,26 @@ def build_overall_standings_form(
     }
 
 
+def clean_cookie_value(value: str) -> str:
+    """Normalize a cookie value pasted into Secrets Manager.
+
+    DevTools sometimes copies JWT values URL-encoded with quote wrappers
+    (e.g. ``%22eyJ...%22``); strip those so the ``Cookie`` header matches
+    what the browser sends.
+    """
+    value = unquote(str(value).strip())
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+        return value[1:-1].strip()
+    return value
+
+
 def normalize_secret_cookie_value(raw: str, name: str) -> str:
     """Accept a cookie value or a legacy ``name=value`` secret entry."""
     value = str(raw).strip()
     prefix = f"{name}="
     if value.lower().startswith(prefix):
-        return value[len(prefix) :].strip()
-    return value
+        value = value[len(prefix) :].strip()
+    return clean_cookie_value(value)
 
 
 def parse_cookie_value(cookie: str, name: str) -> str | None:
@@ -538,6 +551,10 @@ def fetch_nfbc_auth(
             f"Secret {secret_name} is missing a usable {liu_key!r} value for NFBC auth"
         )
 
+    liu_source = clean_cookie_value(liu_source)
+    if jwt:
+        jwt = clean_cookie_value(jwt)
+
     return NfbcAuth(liu=liu_source, jwt=jwt)
 
 
@@ -568,6 +585,39 @@ def download_players_csv(
     return body
 
 
+def standings_http_error(
+    response: requests.Response,
+    *,
+    kind: str,
+    post_url: str,
+    form: dict[str, str],
+) -> NfbcDownloadError:
+    """Build a helpful error when NFBC returns a non-200 standings response."""
+    cf_challenge = response.status_code == 403 and (
+        (response.headers.get("cf-mitigated") or "").lower() == "challenge"
+        or "__cf_chl" in response.text
+    )
+    if cf_challenge and kind == "league":
+        return NfbcDownloadError(
+            "NFBC league standings blocked by Cloudflare bot protection "
+            "(HTTP 403, cf-mitigated=challenge). Prefect Managed / datacenter "
+            "IPs cannot complete the interactive challenge; overall standings "
+            "are unaffected. Workarounds: upload league standings manually, "
+            "run from a non-datacenter IP, or ask NFBC to relax CF on "
+            f"standings.data.php. url={post_url} form={form}"
+        )
+    if cf_challenge:
+        return NfbcDownloadError(
+            "NFBC standings blocked by Cloudflare bot protection "
+            f"(HTTP 403, cf-mitigated=challenge). url={post_url} form={form}"
+        )
+
+    snippet = response.text[:200].replace("\n", " ").strip()
+    return NfbcDownloadError(
+        f"NFBC HTTP {response.status_code} for {post_url} form={form}: {snippet}"
+    )
+
+
 def download_standings_csv(
     *,
     auth: NfbcAuth,
@@ -595,9 +645,8 @@ def download_standings_csv(
         timeout=timeout_seconds,
     )
     if response.status_code != 200:
-        snippet = response.text[:200].replace("\n", " ").strip()
-        raise NfbcDownloadError(
-            f"NFBC HTTP {response.status_code} for {post_url} form={form}: {snippet}"
+        raise standings_http_error(
+            response, kind=kind, post_url=post_url, form=form
         )
 
     try:
