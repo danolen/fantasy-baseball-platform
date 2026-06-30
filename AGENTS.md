@@ -4,7 +4,9 @@
 
 ### Git (required)
 
-- **Never commit directly to `master`.** All changes go on a **feature branch**, then a **pull request** for review. The maintainer merges PRs; agents should not merge to `master` from local or cloud sessions.
+- **Never commit directly to `master`.** All changes go on a **feature branch**, then a **pull request** for review.
+- **Never merge your own PRs.** Agents open PRs and stop there. The maintainer reviews and merges every PR — do not run `gh pr merge`, `ManagePullRequest` merge actions, or any other command that merges to `master`/`main`, even if the integration token has admin rights.
+- **Never push to `master`.** Do not fast-forward, rebase onto, or otherwise update the default branch from an agent session.
 - Prefer branch names like `feat/<phase>-<short-description>` (e.g. `feat/1c-sp-streamer-v1`), `fix/...` for bug fixes, and `chore/...` for hygiene (tests, docs, config-only).
 - When work maps to a **GitHub issue**, **always include that issue’s number in the branch name** (for example `feat/35-ci-ruff-dbt-parse` or `fix/50-unmatched-ftn-badge`) so it is obvious which ticket the branch belongs to.
 
@@ -12,6 +14,7 @@
 
 - Prefer **small, incremental updates** (one focused PR per meaningful chunk) over large sweeping refactors or mega-diffs unless the maintainer explicitly asks for a bigger change set.
 - Keep each change set **tied to a clear outcome** (e.g. one mart column set, one app tab slice) so review and rollback stay easy.
+- **End every implementation turn with an open PR** (create or update) and a short summary for the maintainer. Leave the PR open until they merge it.
 
 ### AWS vs this repository
 
