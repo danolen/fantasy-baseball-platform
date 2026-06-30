@@ -5,6 +5,10 @@ name: Post issue #119 status comment
 
 on:
   workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/post-issue-119-status.yml
 
 permissions:
   issues: write
