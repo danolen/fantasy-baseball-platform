@@ -1,0 +1,27 @@
+# One-shot workflow to post the #119 status comment. Safe to delete after the
+# comment lands. Trigger manually from the Actions tab or:
+#   gh workflow run post-issue-119-status.yml
+name: Post issue #119 status comment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('scripts/comments/issue-119-status.md', 'utf8');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 119,
+              body,
+            });
