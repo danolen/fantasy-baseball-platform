@@ -9,6 +9,7 @@ the architecture decisions (control plane, work pool, cost) behind this package.
 | `nfbc_in_season.py` | NFBC in-season players → `s3://dn-lakehouse-dev/nfbc/in-season-players/…` (#44) plus league + overall standings → `s3://dn-lakehouse-dev/nfbc/in-season-standings/{league,overall}/…` (#119). |
 | `fangraphs_ros.py` | FanGraphs ROS projections → `s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/…` (ticket #45). |
 | `ftn_faab.py` | FTN FAAB recommendations → `s3://dn-lakehouse-dev/ftn/faab/…` (ticket #46). |
+| `razzball_weekly.py` | Razzball weekly + weekend projections → `s3://dn-lakehouse-dev/razzball/projections/weekly/…` (ticket #47). |
 | `pyproject.toml` | Package + pinned deps (`prefect` 3.x, `prefect-aws`, `boto3`, `requests`). |
 | `Dockerfile` | Image for the ECS / self-hosted execution paths. |
 
@@ -21,6 +22,7 @@ python flows/hello_flow.py --dry-run
 python flows/nfbc_in_season.py --dry-run
 python flows/fangraphs_ros.py --dry-run
 python flows/ftn_faab.py --dry-run
+python flows/razzball_weekly.py --dry-run
 ```
 
 For real (needs AWS creds that can read Secrets Manager + `s3:PutObject` on the prefix):
@@ -95,6 +97,42 @@ stored cookies — refresh failure alone is not fatal until a download fails.
 
 **Schedule (Prefect deployment):** Saturdays and Sundays at 8:00 AM
 `America/New_York`. S3 date partitions use `America/New_York`.
+
+## Razzball weekly flow (#47)
+
+**Scope:** weekly hitting, weekly pitching, and weekend hitting projections.
+There is no weekend pitching export.
+
+| Slice | Page | S3 prefix | Filename |
+|-------|------|-----------|----------|
+| Weekly hitting | [hittertron-nextweek](https://razzball.com/hittertron-nextweek/) | `razzball/projections/weekly/hitting/` | `hittertron.csv` |
+| Weekly pitching | [streamers-nextweek](https://razzball.com/streamers-nextweek/) | `razzball/projections/weekly/pitching/` | `streamonator.csv` |
+| Weekend hitting | [hittertron-nextfriday-sunday](https://razzball.com/hittertron-nextfriday-sunday/) | `razzball/projections/weekly/weekend_hitting/` | `hittertron.csv` |
+
+Razzball has no server CSV URL — the on-page **Get CSV** button serializes
+table `#neorazzstatstable` in the browser. The flow fetches the subscriber HTML
+with `curl_cffi` and parses that table into CSV (matching manual exports in
+`data/razzball/projections/weekly/`).
+
+**Auth:** add `razzball_cookie` to the `fantasy-baseball-platform` secret.
+Paste the two WordPress cookies from DevTools (logged-in session on any
+subscriber tool page):
+
+```
+wordpress_logged_in_...=...; wordpress_sec_...=...
+```
+
+Analytics / Cloudflare cookies are not required.
+
+**Schedules (two deployments, one flow):**
+
+| Deployment | Slices | Cron (America/New_York) |
+|------------|--------|-------------------------|
+| `razzball-weekly-managed` | weekly hitting + pitching | 8 AM, 12 PM, 4 PM, 8 PM on Sat, Sun, Mon |
+| `razzball-weekend-managed` | weekend hitting only | 8 AM, 12 PM, 4 PM, 8 PM on Thu, Fri |
+
+CLI flags: `--weekly-hitting-only`, `--weekly-pitching-only`,
+`--weekend-hitting-only`.
 
 ## NFBC in-season flow (#44, #119)
 
@@ -204,6 +242,7 @@ prefect work-pool create --type prefect:managed managed-pool
 #      - s3:PutObject on s3://dn-lakehouse-dev/nfbc/in-season-standings/*
 #      - s3:PutObject on s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/*
 #      - s3:PutObject on s3://dn-lakehouse-dev/ftn/faab/*
+#      - s3:PutObject on s3://dn-lakehouse-dev/razzball/projections/weekly/*
 #      - secretsmanager:GetSecretValue on fantasy-baseball-platform
 prefect block register -m prefect_aws
 python -c "from prefect_aws import AwsCredentials; \
@@ -218,13 +257,18 @@ prefect deploy --name hello-managed
 prefect deploy --name nfbc-in-season-managed
 prefect deploy --name fangraphs-ros-managed
 prefect deploy --name ftn-faab-managed
+prefect deploy --name razzball-weekly-managed
+prefect deploy --name razzball-weekend-managed
 prefect deployment run "nfbc-in-season/nfbc-in-season-managed"
 prefect deployment run "fangraphs-ros/fangraphs-ros-managed"
 prefect deployment run "ftn-faab/ftn-faab-managed"
+prefect deployment run "razzball-weekly/razzball-weekly-managed"
+prefect deployment run "razzball-weekly/razzball-weekend-managed"
 ```
 
-> Hobby tier allows **5 deployments**; hello + nfbc + fangraphs + ftn = 4
-> vendor flows — still within the cap.
+> Hobby tier allows **5 deployments**. Undeploy `hello-world/hello-managed`
+> before deploying both Razzball flows — nfbc + fangraphs + ftn +
+> razzball-weekly + razzball-weekend fills the cap.
 
 ## Later: Option B/C — AWS ECS / Fargate
 
