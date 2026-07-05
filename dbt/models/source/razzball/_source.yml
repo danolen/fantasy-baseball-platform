@@ -15,18 +15,33 @@ sources:
         tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/preseason/pitching/
-      # Freshness skipped: Razzball weekly Prefect flow (#47) not deployed yet.
+      # Freshness: Razzball weekly Prefect flow (#47).
       - name: projections_weekly_hitting
         tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/weekly/hitting/
-      # Freshness skipped: Razzball weekly Prefect flow (#47) not deployed yet.
+        config:
+          loaded_at_query: "{{ source_partition_max_loaded_at('razzball', 'projections_weekly_hitting') }}"
+          freshness:
+            warn_after: {count: 5, period: day}
+            error_after: {count: 7, period: day}
+      # Freshness: Razzball weekly Prefect flow (#47).
       - name: projections_weekly_pitching
         tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/weekly/pitching/
-      # Freshness skipped: Razzball weekend Prefect flow (#47) not deployed yet.
+        config:
+          loaded_at_query: "{{ source_partition_max_loaded_at('razzball', 'projections_weekly_pitching') }}"
+          freshness:
+            warn_after: {count: 5, period: day}
+            error_after: {count: 7, period: day}
+      # Freshness: Razzball weekend Prefect flow (#47).
       - name: projections_weekly_weekend_hitting
         tags: [inseason]
         external:
           location: s3://dn-lakehouse-dev/razzball/projections/weekly/weekend_hitting/
+        config:
+          loaded_at_query: "{{ source_partition_max_loaded_at('razzball', 'projections_weekly_weekend_hitting') }}"
+          freshness:
+            warn_after: {count: 5, period: day}
+            error_after: {count: 7, period: day}
