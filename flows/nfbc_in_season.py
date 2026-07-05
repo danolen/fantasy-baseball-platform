@@ -772,6 +772,8 @@ def nfbc_in_season(
     spid: str = DEFAULT_SPID,
     include_players: bool = True,
     include_standings: bool = True,
+    include_league_standings: bool = True,
+    include_overall_standings: bool = True,
     aws_credentials_block: str | None = None,
     dry_run: bool = False,
 ) -> dict:
@@ -826,7 +828,7 @@ def nfbc_in_season(
                 ),
             )
 
-        if include_standings:
+        if include_standings and include_league_standings:
             if league.nfbc_league_id is not None:
                 league_form = build_league_standings_form(
                     league.nfbc_league_id, spid=spid
@@ -854,6 +856,7 @@ def nfbc_in_season(
                     league.league,
                 )
 
+        if include_standings and include_overall_standings:
             if league.nfbc_overall_game_type_id is not None:
                 for overall_view in OVERALL_STANDINGS_VIEWS:
                     overall_form = build_overall_standings_form(
@@ -946,7 +949,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--skip-standings",
         action="store_true",
-        help="Skip the standings downloads (players only).",
+        help="Skip all standings downloads (players only).",
+    )
+    parser.add_argument(
+        "--skip-league-standings",
+        action="store_true",
+        help="Skip league standings (overall standings + players still run).",
+    )
+    parser.add_argument(
+        "--skip-overall-standings",
+        action="store_true",
+        help="Skip overall standings (league standings + players still run).",
     )
     parser.add_argument(
         "--dry-run",
@@ -964,6 +977,8 @@ if __name__ == "__main__":
             typeval=args.typeval,
             include_players=not args.skip_players,
             include_standings=not args.skip_standings,
+            include_league_standings=not args.skip_league_standings,
+            include_overall_standings=not args.skip_overall_standings,
             aws_credentials_block=args.aws_credentials_block,
             dry_run=args.dry_run,
         )
