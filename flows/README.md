@@ -88,7 +88,10 @@ button), then writes CSVs with quoted headers matching manual exports.
 
 **Rotating FTN tokens:** when the flow fails with an auth error, log in at
 [ftnfantasy.com](https://ftnfantasy.com), copy fresh `refresh_token`,
-`access_token`, and `user_id`, and update the secret.
+`access_token`, and `user_id`, and update the secret. The flow refreshes the
+access token automatically when the JWT is near expiry; if refresh fails (FTN
+sometimes returns HTTP 500 for a stale refresh token) it continues with the
+stored cookies — refresh failure alone is not fatal until a download fails.
 
 **Schedule (Prefect deployment):** Saturdays and Sundays at 8:00 AM
 `America/New_York`. S3 date partitions use `America/New_York`.

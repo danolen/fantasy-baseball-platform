@@ -26,6 +26,7 @@ import base64
 import csv
 import io
 import json
+import logging
 import re
 import sys
 from dataclasses import dataclass
@@ -236,9 +237,24 @@ def resolve_access_token(
     *,
     api_base: str = DEFAULT_API_BASE,
 ) -> FtnTokens:
-    if is_access_token_expired(tokens.access_token):
+    """Return a usable access token, refreshing when the JWT is near expiry.
+
+    FTN's refresh endpoint can return HTTP 500 when the refresh_token in
+    Secrets Manager is stale, even though the cookie values still work for
+    page fetches. On refresh failure we keep the stored tokens and let the
+    download step surface a real auth error if the session is dead.
+    """
+    if not is_access_token_expired(tokens.access_token):
+        return tokens
+    try:
         return refresh_access_token(tokens, api_base=api_base)
-    return tokens
+    except FtnAuthError as exc:
+        logging.getLogger(__name__).warning(
+            "FTN access_token JWT is expired and refresh failed (%s); "
+            "continuing with stored cookies",
+            exc,
+        )
+        return tokens
 
 
 def build_cookie_header(tokens: FtnTokens) -> str:
