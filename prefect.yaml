@@ -36,10 +36,12 @@ deployments:
   - name: nfbc-in-season-managed
     entrypoint: flows/nfbc_in_season.py:nfbc_in_season
     description: >-
-      NFBC in-season players + league/overall standings (#44, #119). Daily at
-      8 AM ET. dbt Cloud trigger deferred until a production job exists.
+      NFBC in-season players + overall standings (#44, #119). League standings
+      are skipped here (Cloudflare blocks datacenter IPs); run those weekly
+      from a residential machine. Daily at 8 AM ET.
     parameters:
       aws_credentials_block: fbb-aws
+      include_league_standings: false
     schedules:
       - cron: "0 8 * * *"
         timezone: America/New_York

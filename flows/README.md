@@ -119,7 +119,8 @@ Championship, `890`) and `nolen_50` (NFBC 50, `897`). Each contest uploads
 **three** overall views matching the [standings_overall](https://nfc.shgn.com/standings_overall)
 dropdown: overview, category stats (`view_type=stats`), and category points
 (`view_type=points`). League standings use each league's `nfbc_league_id` (also
-in the seed). Use `--skip-players` / `--skip-standings` to run only one slice.
+in the seed). Use `--skip-players`, `--skip-standings`,
+`--skip-league-standings`, or `--skip-overall-standings` to run a subset.
 
 **How standings work:** NFBC has no standings CSV export, so the flow POSTs the
 same legacy endpoints the standings pages use and parses the returned HTML table
@@ -166,9 +167,17 @@ values from DevTools are safest.
 **League standings HTTP 403 (Cloudflare):** if overall standings succeed but
 league standings fail with `cf-mitigated: challenge`, NFBC's `/standings` path
 is blocking automated/datacenter traffic — not an expired `jwt`. Prefect Managed
-cannot pass Cloudflare's interactive challenge. Workarounds: upload league
-standings manually (`utils/upload_folder_to_s3.py`), run the flow from a
-non-datacenter IP, or move league standings ingest off Managed compute.
+cannot pass Cloudflare's interactive challenge. The `nfbc-in-season-managed`
+deployment sets `include_league_standings: false` so daily runs skip league
+standings; run those weekly from a residential IP (e.g. your Mac):
+
+```bash
+source venv/bin/activate
+python flows/nfbc_in_season.py --skip-players --skip-overall-standings
+```
+
+Alternatives: upload league standings manually (`utils/upload_folder_to_s3.py`)
+or run the full flow from a non-datacenter network.
 
 **Schedule (Prefect deployment):** daily at 8:00 AM `America/New_York`. S3
 date partitions (`year=/month=/day=`) also use `America/New_York` so a run at
