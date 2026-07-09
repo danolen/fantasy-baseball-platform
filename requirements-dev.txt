@@ -12,6 +12,13 @@
 # on bundled materializations while `ModelLanguage` omits `javascript`, so
 # `dbt parse` fails with KeyError: 'javascript' in fresh CI installs. Cap at
 # 1.10.8 (last 1.10.x before that regression in 1.10.9+).
+#
+# Pin pyathena: dbt-athena 1.10.0 calls BaseCursor._execute(..., work_group=...).
+# PyAthena 3.35.0 moved those kwargs into ExecuteOptions, so unpinned GHA installs
+# fail source freshness with:
+#   BaseCursor._execute() got an unexpected keyword argument 'work_group'
+# Keep in sync with requirements.txt until dbt-athena catches up.
 
 dbt-core==1.10.8
 dbt-athena==1.10.0
+pyathena==3.30.1
