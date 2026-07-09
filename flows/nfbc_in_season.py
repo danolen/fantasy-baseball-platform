@@ -35,6 +35,13 @@ requests the standings pages make) and parses the returned HTML table into CSV:
 
 Analytics cookies (``_ga``, ``_gid``, etc.) are not required for any endpoint.
 
+League standings POSTs to ``standings.data.php`` are blocked by Cloudflare for
+scripted clients (including residential Macs). Prefer the offline path:
+
+    python flows/nfbc_in_season.py --league-standings-from-html ./nfbc_standings_html/
+
+with one ``<league>.html`` file per seed league (browser Network → Response).
+
 dbt Cloud job trigger is deferred (no production job yet), consistent with the
 other vendor flows.
 
@@ -600,11 +607,11 @@ def standings_http_error(
     if cf_challenge and kind == "league":
         return NfbcDownloadError(
             "NFBC league standings blocked by Cloudflare bot protection "
-            "(HTTP 403, cf-mitigated=challenge). Prefect Managed / datacenter "
-            "IPs cannot complete the interactive challenge; overall standings "
-            "are unaffected. Workarounds: upload league standings manually, "
-            "run from a non-datacenter IP, or ask NFBC to relax CF on "
-            f"standings.data.php. url={post_url} form={form}"
+            "(HTTP 403, cf-mitigated=challenge). Scripted POSTs to "
+            "standings.data.php fail even from residential IPs. Capture the "
+            "browser Response HTML and run: python flows/nfbc_in_season.py "
+            "--league-standings-from-html <dir>. "
+            f"url={post_url} form={form}"
         )
     if cf_challenge:
         return NfbcDownloadError(
@@ -711,6 +718,38 @@ def ingest_league(
     return uri
 
 
+def resolve_league_standings_html_path(html_dir: str | Path, league: str) -> Path:
+    """Return ``<html_dir>/<league>.html`` (case-insensitive stem match)."""
+    directory = Path(html_dir)
+    if not directory.is_dir():
+        raise NfbcDownloadError(
+            f"League standings HTML directory not found: {directory}"
+        )
+
+    exact = directory / f"{league}.html"
+    if exact.is_file():
+        return exact
+
+    matches = [
+        path
+        for path in directory.iterdir()
+        if path.is_file()
+        and path.suffix.lower() == ".html"
+        and path.stem.lower() == league.lower()
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise NfbcDownloadError(
+            f"Multiple HTML files match league {league!r} in {directory}: "
+            f"{', '.join(sorted(p.name for p in matches))}"
+        )
+    raise NfbcDownloadError(
+        f"Missing league standings HTML for {league!r}: expected "
+        f"{exact.name} in {directory}"
+    )
+
+
 @task
 def ingest_standings(
     league: LeagueConfig,
@@ -757,6 +796,42 @@ def ingest_standings(
     return uri
 
 
+@task
+def ingest_league_standings_from_html(
+    league: LeagueConfig,
+    *,
+    html_path: Path,
+    bucket: str,
+    base_prefix: str,
+    stamp: datetime,
+    aws_credentials_block: str | None,
+    dry_run: bool,
+) -> str:
+    """Parse a browser-captured standings.data.php HTML file and upload CSV."""
+    logger = get_run_logger()
+    key = build_csv_s3_key(base_prefix, stamp, league.league)
+    target = f"s3://{bucket}/{key}"
+
+    if dry_run:
+        logger.info(
+            "DRY RUN — would parse %s and upload league standings %s",
+            html_path,
+            target,
+        )
+        return target
+
+    html = html_path.read_text(encoding="utf-8", errors="replace")
+    body = league_standings_html_to_csv(html)
+    uri = put_csv_object(bucket, key, body, aws_credentials_block)
+    logger.info(
+        "Uploaded league standings from %s → %s (%s bytes)",
+        html_path.name,
+        uri,
+        len(body),
+    )
+    return uri
+
+
 @flow(name="nfbc-in-season")
 def nfbc_in_season(
     s3_base_path: str = DEFAULT_S3_BASE,
@@ -774,6 +849,7 @@ def nfbc_in_season(
     include_standings: bool = True,
     include_league_standings: bool = True,
     include_overall_standings: bool = True,
+    league_standings_html_dir: str | None = None,
     aws_credentials_block: str | None = None,
     dry_run: bool = False,
 ) -> dict:
@@ -786,9 +862,24 @@ def nfbc_in_season(
     overall_standings_base = f"{standings_base_prefix}/overall".lstrip("/")
     leagues = load_league_config(league_config_path)
     resolved_download_url = download_url or build_download_url(ssid=ssid, typeval=typeval)
+    html_dir = (
+        Path(league_standings_html_dir).expanduser()
+        if league_standings_html_dir
+        else None
+    )
+    needs_nfbc_http = include_players or (
+        include_standings
+        and include_overall_standings
+        and any(league.nfbc_overall_game_type_id is not None for league in leagues)
+    ) or (
+        include_standings
+        and include_league_standings
+        and html_dir is None
+        and any(league.nfbc_league_id is not None for league in leagues)
+    )
 
     auth = NfbcAuth(liu="dry-run-liu", jwt="dry-run-jwt")
-    if not dry_run:
+    if not dry_run and needs_nfbc_http:
         auth = fetch_nfbc_auth(
             secret_name=secret_name,
             secret_region=secret_region,
@@ -829,7 +920,26 @@ def nfbc_in_season(
             )
 
         if include_standings and include_league_standings:
-            if league.nfbc_league_id is not None:
+            if league.nfbc_league_id is None:
+                logger.warning(
+                    "Skipping league standings for %s (no nfbc_league_id in seed)",
+                    league.league,
+                )
+            elif html_dir is not None:
+                html_path = resolve_league_standings_html_path(html_dir, league.league)
+                _run(
+                    f"{league.league} league-standings",
+                    lambda league=league, html_path=html_path: ingest_league_standings_from_html(
+                        league,
+                        html_path=html_path,
+                        bucket=standings_bucket,
+                        base_prefix=league_standings_prefix,
+                        stamp=stamp,
+                        aws_credentials_block=aws_credentials_block,
+                        dry_run=dry_run,
+                    ),
+                )
+            else:
                 league_form = build_league_standings_form(
                     league.nfbc_league_id, spid=spid
                 )
@@ -849,11 +959,6 @@ def nfbc_in_season(
                         aws_credentials_block=aws_credentials_block,
                         dry_run=dry_run,
                     ),
-                )
-            else:
-                logger.warning(
-                    "Skipping league standings for %s (no nfbc_league_id in seed)",
-                    league.league,
                 )
 
         if include_standings and include_overall_standings:
@@ -962,11 +1067,41 @@ if __name__ == "__main__":
         help="Skip overall standings (league standings + players still run).",
     )
     parser.add_argument(
+        "--league-standings-from-html",
+        metavar="DIR",
+        default=None,
+        help=(
+            "Parse browser-captured standings.data.php HTML from DIR "
+            "(files named <league>.html) instead of POSTing NFBC. Implies "
+            "league standings only unless other slices are also enabled."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print planned downloads/uploads instead of calling NFBC/AWS.",
     )
     args = parser.parse_args()
+
+    include_players = not args.skip_players
+    include_standings = not args.skip_standings
+    include_league_standings = not args.skip_league_standings
+    include_overall_standings = not args.skip_overall_standings
+    # Offline HTML path is the supported league-standings refresh: default to
+    # that slice only so operators do not need a pile of --skip-* flags.
+    if args.league_standings_from_html and not any(
+        [
+            args.skip_players,
+            args.skip_standings,
+            args.skip_league_standings,
+            args.skip_overall_standings,
+        ]
+    ):
+        include_players = False
+        include_standings = True
+        include_league_standings = True
+        include_overall_standings = False
+
     print(
         nfbc_in_season(
             s3_base_path=args.s3_path,
@@ -975,10 +1110,11 @@ if __name__ == "__main__":
             secret_name=args.secret_name,
             secret_region=args.secret_region,
             typeval=args.typeval,
-            include_players=not args.skip_players,
-            include_standings=not args.skip_standings,
-            include_league_standings=not args.skip_league_standings,
-            include_overall_standings=not args.skip_overall_standings,
+            include_players=include_players,
+            include_standings=include_standings,
+            include_league_standings=include_league_standings,
+            include_overall_standings=include_overall_standings,
+            league_standings_html_dir=args.league_standings_from_html,
             aws_credentials_block=args.aws_credentials_block,
             dry_run=args.dry_run,
         )
