@@ -22,8 +22,9 @@ this order:
 1. ``GH_PAT`` env var (preferred for local runs).
 2. ``GH_TOKEN`` env var.
 3. AWS Secrets Manager secret named ``fantasy-baseball-platform`` in
-   ``us-east-1``. The secret value can be either the raw token string
-   or a JSON object with a ``token`` key. Override the name with
+   ``us-east-1``. Prefer JSON key ``gh_pat_issue_and_script_work``;
+   aliases ``token`` / ``GH_PAT`` / ``gh_pat`` also work. A raw token
+   string is accepted if the secret is not JSON. Override the name with
    ``GH_PAT_SECRET_NAME`` and the region with ``GH_PAT_SECRET_REGION``.
 4. Whatever ``gh auth`` has configured.
 
@@ -32,19 +33,20 @@ The token needs:
 - ``Issues: read and write`` — to create and label issues.
 - ``Metadata: read`` — to read repo metadata.
 
-The Cursor Cloud Agent's default token can *create* issues but cannot
-create labels, assign labels, edit issues, comment, or close issues. To
-use this script with full label support, generate a fine-grained PAT
-scoped to the repo with the permissions above and either:
+The Cursor Cloud Agent's default integration token can *create* issues
+but cannot create labels, assign labels, edit issues, comment, or close
+issues. To use this script with full label support, generate a
+fine-grained PAT scoped to the repo with the permissions above and
+either:
 
-1. Add it as ``fantasy-baseball-platform`` in AWS Secrets Manager
-   (works automatically inside the Cloud Agent VM, which already has
-   AWS credentials).
+1. Store it in Secrets Manager under
+   ``fantasy-baseball-platform`` → ``gh_pat_issue_and_script_work``
+   (preferred for Cloud Agents that already have AWS credentials).
 2. Add it as a Secret named ``GH_PAT`` in the Cursor dashboard
    (Cloud Agents → Secrets). Note: secrets are only injected when a
    new VM is provisioned, so existing agent sessions may not see new
    secrets right away.
-3. Or run the script locally with ``GH_PAT=ghp_xxx python ...``.
+3. Or run the script locally with ``GH_PAT=github_pat_xxx python ...``.
 
 If none of the above work, run with ``--skip-labels`` to create issues
 unlabeled. Label them later by hand or by re-running with a properly-
@@ -137,20 +139,34 @@ def _gh_pat_from_secrets_manager() -> str | None:
             data = json.loads(value)
         except json.JSONDecodeError:
             return value or None
-        token = data.get("token") or data.get("GH_PAT") or data.get("gh_pat")
-        return token.strip() if isinstance(token, str) and token.strip() else None
+        # Prefer the dedicated issue/script key; fall back to older aliases.
+        for key in (
+            "gh_pat_issue_and_script_work",
+            "token",
+            "GH_PAT",
+            "gh_pat",
+        ):
+            candidate = data.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        return None
     return value or None
 
 
 def _resolve_gh_pat() -> str | None:
-    """Return a GitHub token from env, falling back to AWS Secrets Manager."""
-    token = os.environ.get("GH_PAT") or os.environ.get("GH_TOKEN")
-    if token:
-        return token
+    """Return a GitHub token from env, falling back to AWS Secrets Manager.
+
+    Prefer Secrets Manager when available so a stale/invalid ``GH_PAT`` in the
+    agent environment cannot shadow the fine-grained PAT used for issue work.
+    Env vars still win when Secrets Manager is unavailable (local runs).
+    """
     secret_token = _gh_pat_from_secrets_manager()
     if secret_token:
         os.environ["GH_PAT"] = secret_token
         return secret_token
+    token = os.environ.get("GH_PAT") or os.environ.get("GH_TOKEN")
+    if token:
+        return token
     return None
 
 
@@ -195,6 +211,7 @@ LABEL_COLORS: dict[str, tuple[str, str]] = {
     "area:in-season-tool": ("fbca04", "apps/in-season-tool changes"),
     "area:draft-tool": ("f9d0c4", "apps/draft-tool changes"),
     "area:platform": ("1d76db", "CI, infra, repo hygiene, observability"),
+    "area:security": ("b60205", "IAM, secrets, auth, agent/GitHub access"),
     "area:ai": ("d93f0b", "LLMs, embeddings, RAG, agents"),
     "epic": ("bfdadc", "Tracking issue grouping related work"),
     "book:in-season": ("c5def5", "Concept from The Process: In-Season Management"),

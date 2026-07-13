@@ -11,28 +11,40 @@ to their children.
 
 ### Why this exists
 
-The Cursor Cloud Agent's default GitHub installation token is read-only on
-this repo and can't create issues directly. Rather than have me dictate the
-issues for you to copy-paste, the script captures every ticket as a code
-artifact you can review in a PR, edit if you want, and then run once.
+Issue definitions live in git (`scripts/issues.py`) so they can be reviewed
+in a PR, edited, and created idempotently. The script creates leaves first,
+then epics with child checklists, then the roadmap.
+
+### Agent / token capabilities
+
+| Capability | Cursor integration token (`ghs_…`) | Fine-grained PAT |
+|------------|------------------------------------|------------------|
+| Create issues | Yes | Yes |
+| Create / assign labels | No | Yes |
+| Edit / comment / close issues | No | Yes |
+| Push feature branches / open PRs | Yes (via git remote) | If Contents/PR scopes granted |
+
+For labeled epics and full issue workflow, use the fine-grained PAT below.
 
 ### One-time setup
 
-1. Create a fine-grained GitHub Personal Access Token scoped to this repo
-   with **Issues: Read and write** and **Metadata: Read-only** permissions.
-2. Choose how you'll provide the token to the script (resolved in this
-   order):
-   - **`GH_PAT` env var** (preferred for local runs):
-     `export GH_PAT=ghp_xxx`
-   - **AWS Secrets Manager** (preferred for Cloud Agents): store the
-     token at `fantasy-baseball-platform` in `us-east-1`. The value can
-     be either the raw token string or `{"token": "ghp_xxx"}`. Override
-     the name/region with `GH_PAT_SECRET_NAME` / `GH_PAT_SECRET_REGION`.
+1. Create a fine-grained GitHub Personal Access Token scoped to **only**
+   this repo with:
+   - **Issues:** Read and write
+   - **Metadata:** Read-only
+   - No Administration / Secrets / Workflows access
+2. Provide the token to the script (resolved in this order):
+   - **AWS Secrets Manager** (preferred for Cloud Agents): secret
+     `fantasy-baseball-platform` in `us-east-1`, JSON key
+     `gh_pat_issue_and_script_work`. Older aliases (`token`, `GH_PAT`,
+     `gh_pat`) still work. Override name/region with
+     `GH_PAT_SECRET_NAME` / `GH_PAT_SECRET_REGION`.
+   - **`GH_PAT` / `GH_TOKEN` env var** (local runs, or if Secrets Manager
+     is unavailable).
    - **Cursor dashboard secret** named `GH_PAT` under
-     *Cloud Agents → Secrets*. Note that Cursor only injects secrets
-     when a new agent VM is provisioned — existing sessions don't see
-     newly-added secrets, which is the reason the AWS Secrets Manager
-     fallback exists.
+     *Cloud Agents → Secrets*. Cursor only injects secrets when a **new**
+     agent VM is provisioned — existing sessions may not see newly-added
+     secrets, which is why Secrets Manager is preferred for agents.
 
 ### Usage
 
@@ -40,12 +52,14 @@ artifact you can review in a PR, edit if you want, and then run once.
 # Preview the plan without touching GitHub
 python scripts/create_planning_issues.py --dry-run
 
-# Create everything
-GH_PAT=ghp_xxx python scripts/create_planning_issues.py
+# Create missing issues (skips keys already in scripts/.issue_state.json)
+python scripts/create_planning_issues.py
 
-# Only refresh epic + roadmap checklists with the current child numbers
-# (safe to re-run any time)
-python scripts/create_planning_issues.py --relink-only
+# Create without attempting label create/assign
+python scripts/create_planning_issues.py --skip-labels
+
+# Retro-apply labels from issues.py after granting a PAT
+python scripts/create_planning_issues.py --apply-labels-only
 ```
 
 State is persisted to `scripts/.issue_state.json` so re-runs skip already-
@@ -56,8 +70,7 @@ a different repo).
 
 ### Tweaking the issues before running
 
-Open `scripts/issues.py`. Every ticket is a `_add(...)` call near the top
-of the file. To:
+Open `scripts/issues.py`. Every ticket is a `_add(...)` call. To:
 
 - **Edit a ticket:** change the `title`, `labels`, or `body` of the
   matching entry.

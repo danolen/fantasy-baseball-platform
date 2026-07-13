@@ -12,6 +12,7 @@ Issue key conventions
 - `B1`, `B2`, ...: Phase 2 (in-season app) epics.
 - `C1`, `C2`, ...: Phase 3 (AI) epics.
 - `D1`, `D2`: standalone cross-cutting issues (no epic).
+- `E1`, `E1.1`, ...: platform security hardening epic + leaves.
 - `A1.1`, `A1.2`, ...: leaf issues that roll up to the named epic.
 
 To edit a ticket before creation, edit the relevant entry in this file. To add
@@ -1735,6 +1736,327 @@ _add(
         **Why it matters**
         Lets me see at a glance what's still manual without grepping
         the repo.
+    """),
+)
+
+# ---------------------------------------------------------------------------
+# Platform security hardening
+# ---------------------------------------------------------------------------
+
+_add(
+    key="E1",
+    kind="epic",
+    title="Epic: Platform security hardening",
+    labels=["epic", "area:security", "area:platform"],
+    body_intro=_b("""
+        **Phase:** cross-cutting (security)
+        **Area:** security / platform
+        **Goal:** Bring agent/GitHub access, Streamlit IAM, CI permissions,
+        and AWS identity separation up to a clear least-privilege baseline
+        without over-building for a hobby lakehouse.
+
+        **Why it matters**
+        Automation paths (GitHub Actions OIDC, Prefect + Secrets Manager)
+        are already in good shape. The weak spots are long-lived app
+        credentials, unauthenticated Streamlit surfaces, and incomplete
+        documentation of who may do what. This epic turns the 2026-07
+        security review into trackable tickets.
+
+        **Children**
+        (auto-populated once children are created)
+    """),
+)
+
+_add(
+    key="E1.1",
+    kind="leaf",
+    parent_key="E1",
+    title="Split IAM identities per actor (apps / GHA / Prefect / admin)",
+    labels=["area:security", "area:platform", "chore", "quick-win"],
+    body=_b("""
+        **Outcome**
+        Dedicated IAM principals exist for each actor that touches AWS,
+        documented in a short matrix (can live in `docs/security.md` from
+        E1.6). At minimum:
+
+        | Actor | Principal | Scope |
+        |-------|-----------|--------|
+        | Draft Streamlit | dedicated user/role | Athena read + one DynamoDB table |
+        | In-season Streamlit | dedicated user/role | Athena read only |
+        | GHA MPD ingest | existing OIDC role | Put one S3 prefix |
+        | GHA dbt freshness | existing OIDC role | Athena/Glue read + results prefix |
+        | Prefect ingest | task role / scoped block | Ingest S3 prefixes + Secrets Manager read |
+        | Maintainer admin | break-glass admin | Full access (not used by apps/agents) |
+
+        Streamlit Community Cloud secrets stop sharing the maintainer's
+        personal admin keys.
+
+        **Why it matters**
+        One compromised app secret today can imply broad lakehouse access.
+        Separating identities makes blast radius obvious and rotatable.
+
+        **Files / paths likely touched**
+        - AWS IAM (maintainer-applied; describe in PR/docs)
+        - `apps/draft-tool/README.md`, `apps/in-season-tool/` docs if present
+        - `docs/security.md` (or E1.6)
+
+        **Acceptance criteria**
+        - [ ] Distinct IAM principals for draft app, in-season app, and
+              admin (GHA roles already exist).
+        - [ ] Streamlit Secrets no longer use the admin access keys.
+        - [ ] Matrix of actor → principal → allowed actions is written down.
+        - [ ] No change to GHA OIDC roles unless a bug is found.
+    """),
+)
+
+_add(
+    key="E1.2",
+    kind="leaf",
+    parent_key="E1",
+    title="Narrow draft-tool DynamoDB IAM; remove runtime CreateTable",
+    labels=["area:security", "area:draft-tool", "chore", "quick-win"],
+    body=_b("""
+        **Outcome**
+        The draft tool no longer creates DynamoDB tables at runtime.
+        Table `fantasy_baseball_draft` (or the configured name) is created
+        once via Terraform / console. The app IAM policy allows only
+        `GetItem`, `PutItem`, `DeleteItem`, and `Scan` (or Query) on that
+        table ARN — not `dynamodb:*` and not `CreateTable`.
+
+        **Why it matters**
+        Runtime `CreateTable` from a public Streamlit process is far more
+        privilege than draft tracking needs and conflicts with least
+        privilege.
+
+        **Files / paths likely touched**
+        - `apps/draft-tool/app.py` (`get_dynamodb_table` / `create_table`)
+        - `apps/draft-tool/README.md` (IAM notes)
+        - Optional: `terraform/` module for the table (or note under #54)
+
+        **Acceptance criteria**
+        - [ ] App fails with a clear error if the table is missing (no
+              auto-create).
+        - [ ] IAM policy for the draft app is table-scoped and has no
+              `CreateTable`.
+        - [ ] Marking drafted / undrafted / my-team still works end-to-end.
+        - [ ] README no longer suggests `dynamodb:*`.
+    """),
+)
+
+_add(
+    key="E1.3",
+    kind="leaf",
+    parent_key="E1",
+    title="Streamlit auth or explicit private-only deployment decision",
+    labels=["area:security", "area:draft-tool", "area:in-season-tool"],
+    body=_b("""
+        **Outcome**
+        Either:
+        1. Both Streamlit apps require authentication (Streamlit Cloud
+           auth / OAuth / reverse-proxy access control), **or**
+        2. A written decision that apps stay URL-obscured only, with
+           IAM minimized (E1.1/E1.2) as the primary control, and the
+           decision recorded in `docs/security.md`.
+
+        Do not leave the status ambiguous.
+
+        **Why it matters**
+        Community Cloud apps are typically public. Unauthenticated
+        visitors act with the app's AWS credentials for every Athena/
+        DynamoDB call.
+
+        **Files / paths likely touched**
+        - Streamlit Cloud settings (maintainer)
+        - `apps/*/README.md`
+        - `docs/security.md`
+
+        **Acceptance criteria**
+        - [ ] Documented choice: auth enabled **or** private-only accepted.
+        - [ ] If auth: unauthenticated users cannot load rankings / FAAB
+              data.
+        - [ ] If private-only: README + security doc state the residual
+              risk and required IAM limits.
+    """),
+)
+
+_add(
+    key="E1.4",
+    kind="leaf",
+    parent_key="E1",
+    title="Harden CI: workflow permissions, Dependabot, secret scanning",
+    labels=["area:security", "area:platform", "chore", "quick-win"],
+    body=_b("""
+        **Outcome**
+        - `.github/workflows/ci.yml` sets explicit
+          `permissions: contents: read` (and nothing broader).
+        - Dependabot (or equivalent) watches `pip` and `github-actions`.
+        - A lightweight secret-scanning step (e.g. gitleaks) runs on PRs
+          or Dependabot + GitHub secret scanning is enabled on the repo.
+
+        **Why it matters**
+        Default `GITHUB_TOKEN` permissions and unpinned dependency drift
+        are easy wins. Secret scanning catches accidental key commits.
+
+        **Files / paths likely touched**
+        - `.github/workflows/ci.yml`
+        - `.github/dependabot.yml` (new)
+        - Optional: gitleaks workflow or action step
+
+        **Acceptance criteria**
+        - [ ] CI job token cannot write contents/packages by default.
+        - [ ] Dependabot (or equivalent) PRs appear for Actions and pip.
+        - [ ] Accidental commit of a fake AWS key pattern would be flagged
+              (document how: gitleaks CI and/or GitHub secret scanning).
+    """),
+)
+
+_add(
+    key="E1.5",
+    kind="leaf",
+    parent_key="E1",
+    title="Tighten GitHub Actions OIDC trust policies",
+    labels=["area:security", "area:platform", "area:automation"],
+    body=_b("""
+        **Outcome**
+        OIDC trust for GHA roles is reviewed and tightened where cheap:
+        - Prefer GitHub Environments (e.g. `production`) with optional
+          required reviewers for write workflows, **or**
+        - Document why `repo:ORG/REPO:ref:refs/heads/master` is sufficient
+          for now.
+        - Confirm each role remains single-purpose (MPD put-only vs
+          freshness read/query).
+
+        **Why it matters**
+        Today any workflow on `master` can assume the role. A compromised
+        workflow file merged to `master` inherits that AWS access.
+        Environments add a second gate without replacing OIDC.
+
+        **Files / paths likely touched**
+        - `terraform/github_actions_mpd_ingest/`
+        - `terraform/github_actions_dbt_freshness/`
+        - Matching `.github/workflows/*.yml`
+        - GitHub Environment settings (maintainer)
+
+        **Acceptance criteria**
+        - [ ] Written decision: Environments adopted **or** deferred with
+              rationale in the PR/docs.
+        - [ ] Trust policy still cannot be assumed from fork PRs /
+              arbitrary branches.
+        - [ ] `terraform plan` shows no unintended widening of S3/Athena
+              permissions.
+    """),
+)
+
+_add(
+    key="E1.6",
+    kind="leaf",
+    parent_key="E1",
+    title="Add docs/security.md permission matrix and runbook",
+    labels=["area:security", "area:platform", "chore", "quick-win"],
+    body=_b("""
+        **Outcome**
+        New `docs/security.md` covering:
+        - Actor → IAM principal → allowed AWS actions matrix.
+        - Where secrets live (`.env` local, Streamlit Secrets, AWS Secrets
+          Manager keys — names only, never values).
+        - How Cloud Agents authenticate to GitHub (integration token vs
+          fine-grained PAT `gh_pat_issue_and_script_work`).
+        - Rotation checklist (Streamlit keys, PAT expiration, vendor
+          cookies).
+        - Link from `README.md` and/or `AGENTS.md`.
+
+        **Why it matters**
+        Security decisions evaporate unless written down. Agents and
+        future-you need a single place to check before widening IAM.
+
+        **Files / paths likely touched**
+        - `docs/security.md` (new)
+        - `README.md` or `AGENTS.md` (link)
+        - `scripts/README.md` (cross-link for GH_PAT)
+
+        **Acceptance criteria**
+        - [ ] Matrix includes apps, GHA roles, Prefect, admin, agents.
+        - [ ] Secret *names* documented; no secret *values* in git.
+        - [ ] Agent GitHub access section matches the working PAT setup.
+        - [ ] Linked from a top-level doc so it is discoverable.
+    """),
+)
+
+_add(
+    key="E1.7",
+    kind="leaf",
+    parent_key="E1",
+    title="Document and verify agent GitHub access (fine-grained PAT)",
+    labels=["area:security", "area:platform", "chore", "quick-win"],
+    body=_b("""
+        **Outcome**
+        Agent/GitHub access is fully documented and verified:
+        - Fine-grained PAT scoped to this repo (Issues R/W; Metadata R)
+          lives in AWS Secrets Manager secret
+          `fantasy-baseball-platform` under key
+          `gh_pat_issue_and_script_work`.
+        - `scripts/create_planning_issues.py` resolves that key.
+        - `scripts/README.md` matches reality (default Cursor token can
+          *create* issues but cannot label/edit/comment/close; PAT is
+          required for full issue workflow).
+        - Probe: create/label/close a throwaway issue succeeds with the
+          Secrets Manager PAT and fails gracefully without it.
+
+        **Why it matters**
+        Agents should not need broad classic PATs. Documenting the
+        least-privilege token prevents future "just give it repo admin"
+        shortcuts.
+
+        **Files / paths likely touched**
+        - `scripts/create_planning_issues.py`
+        - `scripts/README.md`
+        - `docs/security.md` (via E1.6)
+
+        **Acceptance criteria**
+        - [ ] README documents PAT scopes, secret name/key, and rotation.
+        - [ ] Script reads `gh_pat_issue_and_script_work` from Secrets Manager.
+        - [ ] Capability matrix (create / label / edit / close) is accurate.
+        - [ ] No classic `repo`-scoped PAT is required for issue scripts.
+    """),
+)
+
+_add(
+    key="E1.8",
+    kind="leaf",
+    parent_key="E1",
+    title="Revisit branch protection rules on master",
+    labels=["area:security", "area:platform", "chore"],
+    body=_b("""
+        **Outcome**
+        Decide whether (and how) to enable GitHub branch protection on
+        `master`. Captured as a revisit ticket so it is not forgotten
+        after the 2026-07 security review deferred it.
+
+        Candidate settings to evaluate:
+        - Require pull request before merging.
+        - Require approvals (maintainer).
+        - Require status checks (`CI` workflow).
+        - Restrict who can push / bypass (agents must not land on
+          `master` without review).
+        - Whether rulesets vs classic branch protection fit better.
+
+        **Why it matters**
+        `AGENTS.md` already says agents must not push or merge to
+        `master`. Branch protection turns that policy into a technical
+        control if an agent or token misbehaves.
+
+        **Files / paths likely touched**
+        - GitHub repo Settings → Rules / Branches (maintainer UI)
+        - Optional: document the decision in `docs/security.md`
+
+        **Acceptance criteria**
+        - [ ] Written decision: enable now, enable later with criteria,
+              or explicitly decline for this hobby repo.
+        - [ ] If enabled: PRs required; direct pushes to `master` blocked
+              for non-admins (or all, with your preferred bypass policy).
+        - [ ] If deferred: next review trigger is named (e.g. first
+              collaborator, or after Streamlit auth lands).
+        - [ ] Decision linked from `docs/security.md` when that doc exists.
     """),
 )
 
