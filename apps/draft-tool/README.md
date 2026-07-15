@@ -44,14 +44,15 @@ pip install -r requirements.txt
 
 ### 3. Configure AWS credentials
 
+Use the **dedicated** draft-tool IAM user (`streamlit-draft-tool`), not your
+personal admin keys. See [`docs/security.md`](../../docs/security.md) and
+[`terraform/streamlit_apps_iam/`](../../terraform/streamlit_apps_iam/README.md).
+
 ```bash
 aws configure
-```
-
-This stores credentials in `~/.aws/credentials`. Alternatively, set environment variables:
-```bash
-export AWS_ACCESS_KEY_ID=your_key
-export AWS_SECRET_ACCESS_KEY=your_secret
+# or:
+export AWS_ACCESS_KEY_ID=your_draft_tool_key
+export AWS_SECRET_ACCESS_KEY=your_draft_tool_secret
 export AWS_DEFAULT_REGION=us-east-1
 ```
 
@@ -85,28 +86,30 @@ streamlit run apps/draft-tool/app.py
 
 1. GitHub account with this repo pushed
 2. Streamlit account at [share.streamlit.io](https://share.streamlit.io)
-3. AWS access keys with permissions for Athena, S3, and DynamoDB
+3. Access keys for the dedicated `streamlit-draft-tool` IAM user (not admin)
 
 ### Configure Streamlit Secrets
 
-In the Streamlit Cloud dashboard, go to your app settings and add secrets in TOML format:
+In the Streamlit Cloud dashboard, go to your app settings and add secrets in TOML format.
+Use keys from `streamlit-draft-tool` only — never paste maintainer admin keys.
 
 ```toml
 [default]
 ATHENA_DATABASE = "AwsDataCatalog"
 ATHENA_SCHEMA = "dbt_main"
 ATHENA_REGION = "us-east-1"
-ATHENA_S3_OUTPUT = "s3://your-bucket/query-results/"
+ATHENA_S3_OUTPUT = "s3://YOUR_LAKEHOUSE_BUCKET/athena-results/"
 
 DYNAMODB_REGION = "us-east-1"
 DYNAMODB_TABLE_NAME = "fantasy_baseball_draft"
 
-AWS_ACCESS_KEY_ID = "your-access-key-id"
-AWS_SECRET_ACCESS_KEY = "your-secret-access-key"
+AWS_ACCESS_KEY_ID = "your-draft-tool-access-key-id"
+AWS_SECRET_ACCESS_KEY = "your-draft-tool-secret-access-key"
 AWS_DEFAULT_REGION = "us-east-1"
 ```
 
 AWS credentials are **required** for Streamlit Cloud -- the app needs them to connect to Athena, S3, and DynamoDB.
+`ATHENA_S3_OUTPUT` must match the prefix allowed by `terraform/streamlit_apps_iam`.
 
 ### Deploy
 
@@ -134,8 +137,8 @@ Push changes to GitHub and Streamlit Cloud redeploys automatically.
 - Add `ATHENA_S3_OUTPUT` to your `.env` (local) or Streamlit Secrets (cloud)
 
 **"Access Denied" or AWS authentication errors**
-- Verify AWS credentials
-- Check IAM permissions: `athena:StartQueryExecution`, `athena:GetQueryExecution`, `athena:GetQueryResults`, `s3:GetObject`, `dynamodb:*`
+- Verify you are using the `streamlit-draft-tool` keys (not admin)
+- Check IAM: Athena query + Glue read + lakehouse/results S3 + DynamoDB on `fantasy_baseball_draft*` (see `terraform/streamlit_apps_iam`)
 
 **"Module not found" errors**
 - Ensure `requirements.txt` at the repo root includes all dependencies
@@ -145,9 +148,9 @@ Push changes to GitHub and Streamlit Cloud redeploys automatically.
 ## Security
 
 - Never commit secrets to git (`.env` is in `.gitignore`)
-- Use IAM roles when running on AWS infrastructure
-- Grant only the minimum required AWS permissions
-- Rotate credentials regularly
+- Use the dedicated `streamlit-draft-tool` IAM user — not maintainer admin keys
+- Grant only the minimum required AWS permissions (`docs/security.md`)
+- Rotate Streamlit access keys on that user regularly
 
 ## Cost
 
