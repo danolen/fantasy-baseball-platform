@@ -45,7 +45,7 @@ Production **dbt Cloud Jobs** (scheduled orchestration) are **not set up yet**; 
 - Mobile- and desktop-friendly
 
 ### Access Control
-- AWS IAM roles
+- Dedicated IAM principals per actor (Streamlit apps, GitHub Actions OIDC, Prefect, maintainer admin) — see [`docs/security.md`](docs/security.md)
 
 ---
 
