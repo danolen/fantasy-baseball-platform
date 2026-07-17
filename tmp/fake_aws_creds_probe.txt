@@ -1,0 +1,4 @@
+# INTENTIONAL secret-scan probe for #149 — do not merge.
+# Uses AWS documentation example keys only (not real credentials).
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
