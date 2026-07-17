@@ -19,6 +19,7 @@
 ### AWS vs this repository
 
 - **AWS** (S3, Glue, Athena, IAM, ECS, etc.) is handled by the maintainer unless they say otherwise. Agents work in **this repo** (dbt, Streamlit, seeds, Python utils, docs) and can describe needed AWS steps for the maintainer to apply.
+- **Security / IAM matrix, secrets inventory, rotation:** see [`docs/security.md`](docs/security.md). Do not widen IAM or reuse admin keys in apps without updating that doc.
 
 ---
 

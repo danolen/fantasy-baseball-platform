@@ -26,6 +26,9 @@ then epics with child checklists, then the roadmap.
 
 For labeled epics and full issue workflow, use the fine-grained PAT below.
 
+Platform-wide security context (IAM matrix, Secrets Manager key names,
+rotation): [`docs/security.md`](../docs/security.md).
+
 ### One-time setup
 
 1. Create a fine-grained GitHub Personal Access Token scoped to **only**

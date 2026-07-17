@@ -45,7 +45,8 @@ Production **dbt Cloud Jobs** (scheduled orchestration) are **not set up yet**; 
 - Mobile- and desktop-friendly
 
 ### Access Control
-- Dedicated IAM principals per actor (Streamlit apps, GitHub Actions OIDC, Prefect, maintainer admin) — see [`docs/security.md`](docs/security.md)
+- Dedicated IAM principals per actor (Streamlit apps, GitHub Actions OIDC, Prefect, maintainer admin)
+- Full matrix, secrets inventory, agent GitHub access, and rotation checklist: [`docs/security.md`](docs/security.md)
 
 ---
 
