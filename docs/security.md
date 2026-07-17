@@ -14,6 +14,7 @@ Related: epic [#154](https://github.com/danolen/fantasy-baseball-platform/issues
 | [Rotation checklist](#rotation-checklist) | How to rotate keys, PAT, vendor cookies |
 | [Streamlit access](#streamlit-app-access-model-148) | Private-only decision |
 | [GHA OIDC trust](#github-actions-oidc-trust-150) | Branch-scoped trust decision |
+| [Branch protection](#branch-protection-on-master-153) | Ruleset + maintainer bypass |
 | [CI supply chain](#ci-supply-chain-controls-149) | Dependabot + gitleaks |
 
 ---
@@ -197,6 +198,36 @@ feature branches cannot assume the roles. Environments follow-up:
 
 ---
 
+## Branch protection on `master` (#153)
+
+**Decision (2026-07): enable a branch ruleset with maintainer bypass.**
+
+Configured in GitHub → **Settings → Rules → Rulesets** (ruleset name
+approximately `Protect master`; enforce **Active**).
+
+| Rule | Setting |
+|------|---------|
+| Target | Branch `master` |
+| Restrict deletions | On |
+| Block force pushes | On |
+| Require a pull request before merging | On (required approvals: **0** — solo) |
+| Require status checks to pass | On (`lint-and-parse`; optionally `secret-scan`) |
+| Bypass list | Maintainer (`danolen`) — **Always allow** |
+
+| Actor | Direct push to `master`? |
+|-------|---------------------------|
+| Maintainer (bypass) | Yes — for trivial / urgent edits |
+| Cursor agents, Dependabot, others | No — must open a PR; CI should pass |
+
+This turns the `AGENTS.md` “no direct push / no self-merge” policy into a
+technical control for non-admin tokens, without forcing the maintainer
+through a PR for every one-line fix.
+
+**Habit:** still prefer PRs for IAM, workflows, deps, and anything that
+should wait on CI. Use bypass only for truly small changes.
+
+---
+
 ## Follow-ups
 
 | Topic | Ticket |
@@ -204,5 +235,3 @@ feature branches cannot assume the roles. Environments follow-up:
 | Remove draft `CreateTable` + `allow_dynamodb_create_table = false` | #147 (deferred until draft redeploy) |
 | Enable Streamlit Cloud authentication | #166 |
 | Adopt GitHub Environments for GHA OIDC | #168 |
-| Verify agent GitHub PAT end-to-end | #152 (done — use `scripts/verify_gh_issue_pat.py`) |
-| Branch protection on `master` | #153 |
