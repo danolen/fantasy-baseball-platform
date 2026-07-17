@@ -62,7 +62,7 @@ This is not a secret; it is the role ARN Terraform created.
 
 ### D. Merge the workflow and test
 
-1. Merge the PR that adds `.github/workflows/ingest-mpd-player-map.yml` to `master` (the IAM trust policy only allows that branch).
+1. Merge the PR that adds `.github/workflows/ingest-mpd-player-map.yml` to `master` (the IAM trust policy only allows that branch via an exact OIDC `sub` match — see [#150](https://github.com/danolen/fantasy-baseball-platform/issues/150); Environments upgrade is [#168](https://github.com/danolen/fantasy-baseball-platform/issues/168)).
 2. **Actions → Ingest MPD player ID map → Run workflow** (`workflow_dispatch`).
 3. Confirm the object in S3:
 

@@ -75,13 +75,47 @@ obscured.
 URL or treating the apps as multi-user — tracked in
 [#166](https://github.com/danolen/fantasy-baseball-platform/issues/166).
 
+## GitHub Actions OIDC trust (#150)
+
+**Decision (2026-07): keep branch-scoped trust; defer GitHub Environments.**
+
+| Role | Trust `sub` (exact `StringEquals`) | Permissions (unchanged / single-purpose) |
+|------|--------------------------------------|------------------------------------------|
+| MPD ingest | `repo:danolen/fantasy-baseball-platform:ref:refs/heads/master` | `s3:PutObject` on `mapping/mpd_player_id_map/*` only |
+| dbt freshness | same branch subject | Athena/Glue read + lakehouse read + Athena results prefix R/W |
+
+**Why not Environments yet**
+
+- Solo maintainer; AWS workflows already require merge to `master` (fork PRs /
+  feature branches cannot assume these roles).
+- GitHub Environment **required reviewers** would pause **cron** /
+  `schedule` jobs until someone approves — a poor fit for weekly MPD +
+  daily freshness until we want that friction.
+- Environments *without* reviewers add only a weak gate (an attacker who
+  can merge to `master` can also add `environment: production` to a
+  workflow). Real value comes with reviewers or when collaborators join.
+
+**What we did tighten**
+
+- OIDC `sub` conditions use `StringEquals` (not `StringLike`) so the
+  subject cannot be widened with wildcards later by accident.
+
+**Upgrade path:** environment-scoped OIDC + `environment: production` on
+the AWS workflows — tracked in
+[#168](https://github.com/danolen/fantasy-baseball-platform/issues/168).
+
+After merging Terraform changes for this ticket, run `terraform apply` in
+`terraform/github_actions_mpd_ingest` and
+`terraform/github_actions_dbt_freshness` so IAM trust documents pick up
+`StringEquals` (permissions are unchanged).
+
 ## Follow-ups (other E1 tickets)
 
 | Topic | Ticket |
 |-------|--------|
 | Remove draft `CreateTable` + set `allow_dynamodb_create_table = false` | #147 (deferred until draft app redeploy) |
 | **Enable Streamlit Cloud authentication (option 1)** | **#166** (follow-up to #148) |
-| Tighter GHA OIDC trust | #150 |
+| **Adopt GitHub Environments for GHA OIDC** | **#168** (follow-up to #150) |
 | Expand this doc (rotation runbook, fuller matrix) | #151 |
 | Agent GitHub PAT docs | #152 |
 | Branch protection on `master` | #153 |

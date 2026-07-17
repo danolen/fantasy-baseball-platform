@@ -49,7 +49,7 @@ GitHub → **Settings → Secrets and variables → Actions → Variables**:
 
 ### D. Merge the workflow and test
 
-1. Merge the PR that adds `.github/workflows/dbt-source-freshness.yml` to `master`.
+1. Merge the PR that adds `.github/workflows/dbt-source-freshness.yml` to `master` (OIDC trust is branch-scoped with exact `sub` match — [#150](https://github.com/danolen/fantasy-baseball-platform/issues/150); Environments upgrade is [#168](https://github.com/danolen/fantasy-baseball-platform/issues/168)).
 2. **Actions → dbt source freshness → Run workflow** (`workflow_dispatch`).
 3. Confirm the job passes (or WARN only on intentionally stale weekend sources).
 
