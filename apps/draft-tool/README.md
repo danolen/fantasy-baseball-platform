@@ -151,6 +151,10 @@ Push changes to GitHub and Streamlit Cloud redeploys automatically.
 - Use the dedicated `streamlit-draft-tool` IAM user — not maintainer admin keys
 - Grant only the minimum required AWS permissions (`docs/security.md`)
 - Rotate Streamlit access keys on that user regularly
+- **Access model:** Streamlit Cloud apps are URL-obscured only (no login) per
+  [#148](https://github.com/danolen/fantasy-baseball-platform/issues/148) —
+  do not publish the app URL; upgrade to auth is
+  [#166](https://github.com/danolen/fantasy-baseball-platform/issues/166)
 
 ## Cost
 

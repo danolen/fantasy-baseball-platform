@@ -43,3 +43,15 @@ AWS_DEFAULT_REGION = "us-east-1"
 
 `ATHENA_S3_OUTPUT` must match `terraform output -raw athena_s3_output` from
 `terraform/streamlit_apps_iam`.
+
+## Access model (private-only)
+
+These apps are deployed on Streamlit Community Cloud **without login**.
+Anyone with the URL can use the app (and thus the app's IAM credentials for
+Athena). That is an intentional solo-hobby trade-off documented in
+[`docs/security.md`](../../docs/security.md) (#148).
+
+- Do **not** share the Streamlit URL in public channels.
+- If the URL leaks, rotate the `streamlit-inseason-tool` access keys and
+  update Streamlit Secrets.
+- Planned upgrade to required auth: [#166](https://github.com/danolen/fantasy-baseball-platform/issues/166).
