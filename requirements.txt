@@ -1,5 +1,5 @@
 streamlit==1.57.0
-boto3==1.43.6
+boto3==1.43.50
 pandas==3.0.3
 pyathena==3.35.2
 python-dotenv==1.2.2
