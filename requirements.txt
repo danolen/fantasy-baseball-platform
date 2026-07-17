@@ -4,4 +4,4 @@ pandas==3.0.3
 pyathena==3.35.2
 python-dotenv==1.2.2
 plotly==6.9.0
-numpy==2.4.4
+numpy==2.5.1
