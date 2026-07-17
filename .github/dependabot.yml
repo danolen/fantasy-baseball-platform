@@ -1,0 +1,23 @@
+# Dependabot: weekly update PRs for pip + GitHub Actions (#149).
+# Docs: https://docs.github.com/en/code-security/dependabot
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - chore
+      - area:platform
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - chore
+      - area:platform
