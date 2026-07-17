@@ -17,17 +17,30 @@ then epics with child checklists, then the roadmap.
 
 ### Agent / token capabilities
 
-| Capability | Cursor integration token (`ghs_…`) | Fine-grained PAT |
+| Capability | Cursor Cloud Agent installation token (`ghs_…`) | Fine-grained PAT (`github_pat_…`) |
 |------------|------------------------------------|------------------|
 | Create issues | Yes | Yes |
 | Create / assign labels | No | Yes |
 | Edit / comment / close issues | No | Yes |
 | Push feature branches / open PRs | Yes (via git remote) | If Contents/PR scopes granted |
 
-For labeled epics and full issue workflow, use the fine-grained PAT below.
+Maintainer laptop `gh auth` is separate and usually has full issue access; do
+not confuse it with the Cloud Agent installation token.
+
+For labeled epics and full issue workflow from agents/scripts, use the
+fine-grained PAT below.
 
 Platform-wide security context (IAM matrix, Secrets Manager key names,
 rotation): [`docs/security.md`](../docs/security.md).
+
+### Verify the PAT
+
+```sh
+python scripts/verify_gh_issue_pat.py
+```
+
+Creates, labels, comments on, and closes a throwaway issue using the same
+Secrets Manager resolution as `create_planning_issues.py`. Expect `PASS`.
 
 ### One-time setup
 
