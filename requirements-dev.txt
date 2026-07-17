@@ -21,4 +21,4 @@
 
 dbt-core==1.10.8
 dbt-athena==1.10.0
-pyathena==3.30.1
+pyathena==3.35.2
