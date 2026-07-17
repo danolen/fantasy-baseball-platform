@@ -87,25 +87,38 @@ Role ARNs are identifiers, not credentials.
 
 ## Agent GitHub access
 
-Cursor Cloud Agents use **two** GitHub credential paths:
+Cursor Cloud Agents may see **two** different GitHub credential paths. Treat
+them separately — do not assume laptop `gh auth` matches the Cloud Agent.
 
-| Credential | Typical form | Can do | Cannot do |
-|------------|--------------|--------|-----------|
-| Cursor GitHub App installation token | `ghs_…` (via `gh auth` / git remote) | Create issues; push feature branches; open PRs | Create/assign labels; edit/comment/close issues (often 403) |
-| Fine-grained PAT | `github_pat_…` in SM key `gh_pat_issue_and_script_work` | Full issue workflow (labels, comments, close) when used as `GH_TOKEN` | Must stay scoped to this repo only |
+| Credential | Typical form | Create issue | Label / edit / comment / close | Push branch / open PR |
+|------------|--------------|--------------|--------------------------------|------------------------|
+| Cursor GitHub App installation token (Cloud Agent default) | `ghs_…` | Yes | **No** (403) | Yes (git remote) |
+| Fine-grained PAT (Secrets Manager) | `github_pat_…` | Yes | **Yes** | Only if Contents/PR scopes granted (not required for issue scripts) |
+| Maintainer laptop `gh auth` | user OAuth / PAT | Yes | Yes (if scoped) | Yes |
 
-**PAT scope (required minimum):**
+**PAT for issue scripts (required setup):**
 
-- Repository access: **only** `danolen/fantasy-baseball-platform`
-- **Issues:** Read and write
-- **Metadata:** Read-only
-- No Administration, Secrets, or Workflows
+- AWS Secrets Manager secret: `fantasy-baseball-platform` (`us-east-1`)
+- JSON key: `gh_pat_issue_and_script_work`
+- Repo access: **only** `danolen/fantasy-baseball-platform`
+- Scopes: **Issues** read/write, **Metadata** read-only
+- No Administration / Secrets / Workflows; **not** a classic `repo`-scoped `ghp_…` PAT
 
-**Resolution order** for `scripts/create_planning_issues.py`: Secrets Manager
-(preferred on Cloud Agents) → `GH_PAT` / `GH_TOKEN` env → `gh auth`.
+**Resolution order** (`scripts/create_planning_issues.py` and
+`scripts/verify_gh_issue_pat.py`): Secrets Manager (preferred on agents) →
+`GH_PAT` / `GH_TOKEN` env → ambient `gh auth`.
 
-Details and usage: [`scripts/README.md`](../scripts/README.md).
-Verification / probe checklist: [#152](https://github.com/danolen/fantasy-baseball-platform/issues/152).
+### Verify (re-run anytime)
+
+```sh
+# AWS creds that can read the secret, then:
+python scripts/verify_gh_issue_pat.py
+```
+
+Expected: `PASS` after create+label, comment, and close of a throwaway issue.
+Verified 2026-07-16 (`scripts/verify_gh_issue_pat.py` → probe #173) as part of #152.
+
+Details: [`scripts/README.md`](../scripts/README.md).
 
 **AWS on agent VMs:** prefer no admin keys. Default to repo-only work; AWS is
 maintainer-applied per `AGENTS.md` unless the ticket says otherwise.
@@ -191,5 +204,5 @@ feature branches cannot assume the roles. Environments follow-up:
 | Remove draft `CreateTable` + `allow_dynamodb_create_table = false` | #147 (deferred until draft redeploy) |
 | Enable Streamlit Cloud authentication | #166 |
 | Adopt GitHub Environments for GHA OIDC | #168 |
-| Verify agent GitHub PAT end-to-end | #152 |
+| Verify agent GitHub PAT end-to-end | #152 (done — use `scripts/verify_gh_issue_pat.py`) |
 | Branch protection on `master` | #153 |

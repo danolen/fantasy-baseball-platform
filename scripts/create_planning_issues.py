@@ -98,14 +98,17 @@ def save_state(state: dict[str, int]) -> None:
 
 
 def _gh_pat_from_secrets_manager() -> str | None:
-    """Fetch ``GH_PAT`` from AWS Secrets Manager as a fallback when it is
-    not in the env. Used so cloud agents (and any other AWS-authenticated
-    runner) can pick up the token without an env var.
+    """Fetch the fine-grained issue PAT from AWS Secrets Manager.
+
+    Used so cloud agents (and any other AWS-authenticated runner) can pick
+    up the token without a dedicated env var.
 
     The secret name is read from ``GH_PAT_SECRET_NAME`` (default:
-    ``fantasy-baseball-platform/gh_pat``) and the region from
-    ``GH_PAT_SECRET_REGION`` (default: ``us-east-1``). The secret value can
-    be either the raw token string or a JSON object with a ``token`` key.
+    ``fantasy-baseball-platform``) and the region from
+    ``GH_PAT_SECRET_REGION`` (default: ``us-east-1``). Prefer JSON key
+    ``gh_pat_issue_and_script_work``; aliases ``token`` / ``GH_PAT`` /
+    ``gh_pat`` still work. A raw token string is accepted if the secret is
+    not JSON.
 
     Returns ``None`` (without raising) if boto3 is missing, AWS creds are
     not available, or the secret does not exist. Other errors are also
