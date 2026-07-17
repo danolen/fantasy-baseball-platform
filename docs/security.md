@@ -40,25 +40,23 @@ Never commit secret **values**. Rotate Streamlit keys by creating a new
 access key on the dedicated user, updating Streamlit, then deleting the old
 key.
 
-## Maintainer checklist — finish #145 after merge
+## CI supply-chain controls (#149)
 
-1. `cd terraform/streamlit_apps_iam` → `terraform apply` (see module README).
-2. `aws iam create-access-key` for each new user.
-3. Update **both** Streamlit Cloud apps' secrets to the dedicated keys.
-4. Confirm apps still load data; draft mark-as-drafted still works.
-5. Remove admin access keys from Streamlit Secrets.
-6. Optionally deactivate unused admin keys that existed only for Streamlit.
+| Control | Where | Notes |
+|---------|-------|-------|
+| Least-privilege `GITHUB_TOKEN` | `.github/workflows/ci.yml` → `permissions: contents: read` | Lint/parse/secret-scan jobs cannot push or publish packages with the default token. |
+| Dependabot | `.github/dependabot.yml` | Weekly PRs for `pip` (`requirements*.txt`) and `github-actions`. |
+| Secret scanning (CI) | `secret-scan` job in `ci.yml` | Runs [gitleaks](https://github.com/gitleaks/gitleaks) on every PR / `master` push. Uses the binary (not `gitleaks-action`) so private repos need no paid license. |
+| Secret scanning (GitHub) | Repo **Settings → Code security** | Enable **Secret scanning** (and push protection if offered) so GitHub also blocks known token patterns on push. Free for public repos; available on private personal repos for standard secret scanning. |
 
-Until steps 3–5 are done, acceptance criterion “Streamlit Secrets no longer
-use the admin access keys” remains open on the maintainer side.
+A fake `AKIA...` / private-key style string committed in a PR should fail the `secret-scan` job (and/or GitHub push protection if enabled).
 
 ## Follow-ups (other E1 tickets)
 
 | Topic | Ticket |
 |-------|--------|
-| Remove draft `CreateTable` + set `allow_dynamodb_create_table = false` | #147 |
+| Remove draft `CreateTable` + set `allow_dynamodb_create_table = false` | #147 (deferred until draft app redeploy) |
 | Streamlit auth vs private-only decision | #148 |
-| CI permissions / Dependabot / secret scanning | #149 |
 | Tighter GHA OIDC trust | #150 |
 | Expand this doc (rotation runbook, fuller matrix) | #151 |
 | Agent GitHub PAT docs | #152 |
