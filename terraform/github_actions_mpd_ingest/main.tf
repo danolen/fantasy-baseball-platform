@@ -39,8 +39,10 @@ data "aws_iam_policy_document" "github_assume_role" {
       values   = ["sts.amazonaws.com"]
     }
 
+    # Exact match (no wildcards). Branch-scoped subject is intentional for
+    # now; environment-scoped trust is the #168 follow-up.
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values   = [local.github_repo_subject]
     }
