@@ -1,4 +1,4 @@
 # INTENTIONAL secret-scan probe for #149 — do not merge.
-# Synthetic values (not AWS docs examples; not real credentials).
-AWS_ACCESS_KEY_ID=AKIAZZZZZZZZZZTEST01
-AWS_SECRET_ACCESS_KEY=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+# High-entropy synthetic values (not real credentials).
+AWS_ACCESS_KEY_ID=AKIA2BXK7LQ9M3NP4RST
+AWS_SECRET_ACCESS_KEY=k9LmN2pQ7rS4tU8vW1xY3zA6bC0dE5fG8hI2jK4l
