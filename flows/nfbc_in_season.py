@@ -29,9 +29,13 @@ requests the standings pages make) and parses the returned HTML table into CSV:
   ``nfbc_league_id`` (summary table ``#standings_league`` plus hitters/pitchers
   breakdown tables with all 10 roto category stats and points).
 * overall standings: POST ``standings_overall.data.php`` with the contest's
-  ``nfbc_overall_game_type_id`` and ``view_type`` (table ``#standings_overall_1``),
-  only for leagues that set it (890 = Online Championship, 897 = NFBC 50).
-  Views: ``overview``, ``stats`` (category stats), ``points`` (category points).
+  ``nfbc_overall_game_type_id``, current scoring-period ``spid``, and
+  ``view_type`` (table ``#standings_overall_1``), only for leagues that set it
+  (890 = Online Championship, 897 = NFBC 50). Views: ``overview``, ``stats``
+  (category stats), ``points`` (category points). Even YTD
+  (``overall_season_standings``) is scoped by ``spid`` — an old week freezes
+  totals at that week's cutoff — so the flow resolves the page's selected
+  week unless ``--spid`` is passed explicitly.
 
 Analytics cookies (``_ga``, ``_gid``, etc.) are not required for any endpoint.
 
@@ -81,8 +85,10 @@ DEFAULT_DOWNLOAD_BASE = "https://nfc.shgn.com/api/react/players_download"
 # endpoints the standings pages use and parses the returned HTML tables.
 LEAGUE_STANDINGS_DATA_URL = "https://nfc.shgn.com/standings.data.php"
 OVERALL_STANDINGS_DATA_URL = "https://nfc.shgn.com/standings_overall.data.php"
-LEAGUE_STANDINGS_REFERER = "https://nfc.shgn.com/standings"
-OVERALL_STANDINGS_REFERER = "https://nfc.shgn.com/standings_overall"
+LEAGUE_STANDINGS_PAGE_URL = "https://nfc.shgn.com/standings"
+OVERALL_STANDINGS_PAGE_URL = "https://nfc.shgn.com/standings_overall"
+LEAGUE_STANDINGS_REFERER = LEAGUE_STANDINGS_PAGE_URL
+OVERALL_STANDINGS_REFERER = OVERALL_STANDINGS_PAGE_URL
 LEAGUE_STANDINGS_TABLE_ID = "standings_league"
 OVERALL_STANDINGS_TABLE_ID = "standings_overall_1"
 LEAGUE_HITTER_CATEGORIES = ("R", "HR", "RBI", "SB", "AVG")
@@ -96,7 +102,10 @@ DEFAULT_OVERALL_STANDINGS_VIEW_TYPE = "overview"
 OVERALL_VIEW_OVERVIEW = "overview"
 OVERALL_VIEW_CATEGORY_STATS = "stats"
 OVERALL_VIEW_CATEGORY_POINTS = "points"
-DEFAULT_SPID = "14"
+# Scoring-period id (week). None = resolve the currently selected week from
+# the overall standings page at run time. Do not hardcode — YTD totals are
+# still cut off at the requested week (spid=14 froze OC overall at Week 14).
+DEFAULT_SPID: str | None = None
 DEFAULT_LEAGUE_CONFIG = "dbt/seeds/league_config.csv"
 BROWSER_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -178,7 +187,7 @@ def build_download_url(
 def build_league_standings_form(
     league_id: int,
     *,
-    spid: str = DEFAULT_SPID,
+    spid: str,
     standings_type: str = DEFAULT_LEAGUE_STANDINGS_TYPE,
     view: str = DEFAULT_LEAGUE_STANDINGS_VIEW,
 ) -> dict[str, str]:
@@ -194,7 +203,7 @@ def build_league_standings_form(
 def build_overall_standings_form(
     game_type_id: int,
     *,
-    spid: str = DEFAULT_SPID,
+    spid: str,
     sport: str = "baseball",
     standings_type: str = DEFAULT_OVERALL_STANDINGS_TYPE,
     view_type: str = DEFAULT_OVERALL_STANDINGS_VIEW_TYPE,
@@ -207,6 +216,56 @@ def build_overall_standings_form(
         "standings_type": standings_type,
         "view_type": view_type,
     }
+
+
+def resolve_current_spid(
+    auth: NfbcAuth,
+    *,
+    page_url: str = OVERALL_STANDINGS_PAGE_URL,
+    timeout_seconds: int = DOWNLOAD_TIMEOUT_SECONDS,
+) -> str:
+    """Return the scoring-period id currently selected on the standings page.
+
+    NFBC's week dropdown (``#spid``) is the as-of cutoff for YTD standings as
+    well as weekly views. Reading the selected option keeps daily pulls on the
+    current week without hardcoding a stale id.
+    """
+    from bs4 import BeautifulSoup
+
+    response = requests.get(
+        page_url,
+        headers={
+            "Cookie": f"liu={auth.liu.strip()}",
+            "User-Agent": BROWSER_USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+        timeout=timeout_seconds,
+    )
+    if response.status_code != 200:
+        raise NfbcDownloadError(
+            f"NFBC HTTP {response.status_code} loading {page_url} to resolve spid"
+        )
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    select = soup.find("select", id="spid")
+    if select is None:
+        raise NfbcAuthError(
+            f"NFBC scoring-period select #spid not found on {page_url} "
+            "(session cookie likely expired)"
+        )
+
+    selected = select.find("option", selected=True)
+    if selected is None:
+        for option in select.find_all("option"):
+            if option.has_attr("selected"):
+                selected = option
+                break
+    if selected is None or not (selected.get("value") or "").strip():
+        raise NfbcDownloadError(
+            f"NFBC #spid select on {page_url} had no selected option"
+        )
+
+    return str(selected["value"]).strip()
 
 
 def clean_cookie_value(value: str) -> str:
@@ -844,7 +903,7 @@ def nfbc_in_season(
     download_url: str | None = None,
     ssid: str = DEFAULT_SSID,
     typeval: str = DEFAULT_TYPEVAL,
-    spid: str = DEFAULT_SPID,
+    spid: str | None = DEFAULT_SPID,
     include_players: bool = True,
     include_standings: bool = True,
     include_league_standings: bool = True,
@@ -867,16 +926,19 @@ def nfbc_in_season(
         if league_standings_html_dir
         else None
     )
-    needs_nfbc_http = include_players or (
+    needs_overall_http = (
         include_standings
         and include_overall_standings
         and any(league.nfbc_overall_game_type_id is not None for league in leagues)
-    ) or (
+    )
+    needs_league_http = (
         include_standings
         and include_league_standings
         and html_dir is None
         and any(league.nfbc_league_id is not None for league in leagues)
     )
+    needs_standings_spid = needs_overall_http or needs_league_http
+    needs_nfbc_http = include_players or needs_overall_http or needs_league_http
 
     auth = NfbcAuth(liu="dry-run-liu", jwt="dry-run-jwt")
     if not dry_run and needs_nfbc_http:
@@ -887,6 +949,20 @@ def nfbc_in_season(
             jwt_key=jwt_key,
             aws_credentials_block=aws_credentials_block,
         )
+
+    resolved_spid = spid
+    if needs_standings_spid and resolved_spid is None:
+        if dry_run:
+            resolved_spid = "dry-run-current"
+            logger.info(
+                "DRY RUN — would resolve current NFBC spid from %s",
+                OVERALL_STANDINGS_PAGE_URL,
+            )
+        else:
+            resolved_spid = resolve_current_spid(auth)
+            logger.info("Resolved NFBC scoring period spid=%s", resolved_spid)
+    elif needs_standings_spid:
+        logger.info("Using explicit NFBC scoring period spid=%s", resolved_spid)
 
     successes: dict[str, str] = {}
     failures: dict[str, str] = {}
@@ -940,8 +1016,9 @@ def nfbc_in_season(
                     ),
                 )
             else:
+                assert resolved_spid is not None  # set above when needs_standings_spid
                 league_form = build_league_standings_form(
-                    league.nfbc_league_id, spid=spid
+                    league.nfbc_league_id, spid=resolved_spid
                 )
                 _run(
                     f"{league.league} league-standings",
@@ -963,10 +1040,11 @@ def nfbc_in_season(
 
         if include_standings and include_overall_standings:
             if league.nfbc_overall_game_type_id is not None:
+                assert resolved_spid is not None  # set above when needs_standings_spid
                 for overall_view in OVERALL_STANDINGS_VIEWS:
                     overall_form = build_overall_standings_form(
                         league.nfbc_overall_game_type_id,
-                        spid=spid,
+                        spid=resolved_spid,
                         view_type=overall_view.view_type,
                     )
                     overall_prefix = (
@@ -1042,6 +1120,15 @@ if __name__ == "__main__":
         help=f"NFBC season year query param (default: {DEFAULT_TYPEVAL})",
     )
     parser.add_argument(
+        "--spid",
+        default=None,
+        help=(
+            "NFBC scoring-period id (week) for standings POSTs. "
+            "Default: resolve the currently selected week from the "
+            "standings_overall page (required for current YTD totals)."
+        ),
+    )
+    parser.add_argument(
         "--aws-credentials-block",
         default=None,
         help="Name of a Prefect AwsCredentials block (for Prefect Managed compute).",
@@ -1110,6 +1197,7 @@ if __name__ == "__main__":
             secret_name=args.secret_name,
             secret_region=args.secret_region,
             typeval=args.typeval,
+            spid=args.spid,
             include_players=include_players,
             include_standings=include_standings,
             include_league_standings=include_league_standings,
