@@ -167,8 +167,13 @@ into CSV (the equivalent of copy-pasting the rendered page):
 - League: `POST standings.data.php` with `league_id` (summary table
   `#standings_league` plus hitters/pitchers breakdown tables parsed into one wide
   CSV with `R`, `R_pts`, `HR`, `HR_pts`, … `WHIP`, `WHIP_pts`).
-- Overall: `POST standings_overall.data.php` with `game_type_id` and `view_type`
-  (`overview`, `stats`, `points`) → table `#standings_overall_1`.
+- Overall: `POST standings_overall.data.php` with `game_type_id`, scoring-period
+  `spid`, and `view_type` (`overview`, `stats`, `points`) → table
+  `#standings_overall_1`. Even YTD (`overall_season_standings`) is cut off at
+  the requested week, so the flow resolves the page's selected `spid` at run
+  time (override with `--spid` for a historical week). Hardcoding an old week
+  freezes overall totals — that is what pinned OC overall at Week 14
+  (`spid=14`, Jun 22–28) through mid-July.
 
 These legacy endpoints use only the session cookies below — analytics cookies
 (`_ga`, `_gid`, etc.) are not required.
