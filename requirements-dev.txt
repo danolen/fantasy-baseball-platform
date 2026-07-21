@@ -19,6 +19,6 @@
 #   BaseCursor._execute() got an unexpected keyword argument 'work_group'
 # Keep in sync with requirements.txt until dbt-athena catches up.
 
-dbt-core==1.10.8
+dbt-core==1.12.0
 dbt-athena==1.10.0
 pyathena==3.35.2
