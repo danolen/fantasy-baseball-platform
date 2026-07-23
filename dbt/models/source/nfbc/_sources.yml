@@ -29,3 +29,32 @@ sources:
           freshness:
             warn_after: {count: 24, period: hour}
             error_after: {count: 36, period: hour}
+      # Freshness: NFBC in-season Prefect flow (#44/#119). Glue tables are
+      # unpartitioned; dbt derives year/month/day from Athena "$path" (#182).
+      - name: in_season_overall_overview
+        tags: [inseason]
+        external:
+          location: s3://dn-lakehouse-dev/nfbc/in-season-standings/overall/overview/
+        config:
+          loaded_at_query: "{{ source_partition_max_loaded_at('nfbc', 'in_season_overall_overview') }}"
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 36, period: hour}
+      - name: in_season_overall_category_stats
+        tags: [inseason]
+        external:
+          location: s3://dn-lakehouse-dev/nfbc/in-season-standings/overall/category-stats/
+        config:
+          loaded_at_query: "{{ source_partition_max_loaded_at('nfbc', 'in_season_overall_category_stats') }}"
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 36, period: hour}
+      - name: in_season_overall_category_points
+        tags: [inseason]
+        external:
+          location: s3://dn-lakehouse-dev/nfbc/in-season-standings/overall/category-points/
+        config:
+          loaded_at_query: "{{ source_partition_max_loaded_at('nfbc', 'in_season_overall_category_points') }}"
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 36, period: hour}
