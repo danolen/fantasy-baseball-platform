@@ -1,0 +1,149 @@
+version: 2
+
+models:
+  - name: stg_nfbc_in_season_overall_overview
+    description: >-
+      Typed NFBC overall overview standings. One row per team per source
+      league key per snapshot date. Full history retained; filter
+      is_latest_snapshot = true for the current contest snapshot.
+    columns:
+      - name: standing_rank
+        data_tests:
+          - not_null
+      - name: owner
+        data_tests:
+          - not_null
+      - name: team
+        data_tests:
+          - not_null
+      - name: nfbc_league_id
+        data_tests:
+          - not_null
+      - name: source_league_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('league_config')
+                field: league
+      - name: snapshot_date
+        data_tests:
+          - not_null
+      - name: is_latest_snapshot
+        data_tests:
+          - not_null
+      - name: format
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['oc', 'me', '50s']
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - source_league_key
+              - snapshot_date
+              - standing_rank
+
+  - name: stg_nfbc_in_season_overall_category_stats
+    description: >-
+      Typed NFBC overall category-stat standings. Counting and ratio stats are
+      numeric; unused placeholders are not present. Full history retained;
+      filter is_latest_snapshot = true for the current contest snapshot.
+    columns:
+      - name: standing_rank
+        data_tests:
+          - not_null
+      - name: owner
+        data_tests:
+          - not_null
+      - name: team
+        data_tests:
+          - not_null
+      - name: nfbc_league_id
+        data_tests:
+          - not_null
+      - name: source_league_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('league_config')
+                field: league
+      - name: snapshot_date
+        data_tests:
+          - not_null
+      - name: is_latest_snapshot
+        data_tests:
+          - not_null
+      - name: format
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['oc', 'me', '50s']
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - source_league_key
+              - snapshot_date
+              - standing_rank
+
+  - name: stg_nfbc_in_season_overall_category_points
+    description: >-
+      Typed NFBC overall category-points standings. Point columns are named
+      distinctly from raw stats (r_pts, hr_pts, ...). Full history retained;
+      filter is_latest_snapshot = true for the current contest snapshot.
+    columns:
+      - name: standing_rank
+        data_tests:
+          - not_null
+      - name: owner
+        data_tests:
+          - not_null
+      - name: team
+        data_tests:
+          - not_null
+      - name: nfbc_league_id
+        data_tests:
+          - not_null
+      - name: source_league_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('league_config')
+                field: league
+      - name: snapshot_date
+        data_tests:
+          - not_null
+      - name: is_latest_snapshot
+        data_tests:
+          - not_null
+      - name: format
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['oc', 'me', '50s']
+      - name: r_pts
+        data_tests:
+          - not_null
+      - name: hr_pts
+        data_tests:
+          - not_null
+      - name: avg_pts
+        data_tests:
+          - not_null
+      - name: k_pts
+        data_tests:
+          - not_null
+      - name: whip_pts
+        data_tests:
+          - not_null
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - source_league_key
+              - snapshot_date
+              - standing_rank

@@ -50,7 +50,7 @@ Tags live on **sources** (and a few **seeds** used only by the in-season FAAB pa
 
 | Tag | Meaning |
 |-----|---------|
-| `inseason` | External data that updates during the season: NFBC in-season players; Razzball weekly projections; Fangraphs **rest-of-season** projections and rosters (with preseason); FTN FAAB; plus the in-season seeds above. |
+| `inseason` | External data that updates during the season: NFBC in-season players and overall standings snapshots; Razzball weekly projections; Fangraphs **rest-of-season** projections and rosters (with preseason); FTN FAAB; plus the in-season seeds above. |
 | `preseason` | Draft / preseason inputs (NFBC standings, players, ADP; Fangraphs/Razzball/FTN *preseason* projections; Fangraphs rosters; Underdog ADP). `nfbc.standings` stays here so SGP work does not ride the in-season selector. |
 | *(multi)* | `mapping.player_id_map` is tagged `preseason` and `inseason` because both slices use the ID map. |
 
@@ -86,7 +86,7 @@ connect; double-check the command you ran.
 
 ## Source freshness (#51)
 
-Five live-ingest sources have `freshness:` blocks in `models/source/*/_sources.yml`
+Live-ingest sources have `freshness:` blocks in `models/source/*/_sources.yml`
 (scaled to Prefect / GHA cadence). Skipped sources have YAML comments explaining why.
 
 ```bash
