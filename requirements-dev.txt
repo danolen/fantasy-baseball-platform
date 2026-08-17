@@ -29,7 +29,7 @@
 # ("Remote end closed connection without response") — seen on the #243
 # post-merge run. 2.0.0a4 is the last release with real PyPI wheels.
 
-dbt-core==1.12.0
+dbt-core==1.12.2
 dbt-athena==1.10.0
 dbt-core-experimental-parser==2.0.0a4
 pyathena==3.35.4
