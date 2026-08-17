@@ -31,7 +31,7 @@
 
 dbt-core==1.12.0
 dbt-athena==1.10.0
-dbt-core-experimental-parser==2.0.0a4
+dbt-core-experimental-parser==2.0.0b1
 pyathena==3.35.4
 ruff==0.16.2
 pytest==9.1.1
