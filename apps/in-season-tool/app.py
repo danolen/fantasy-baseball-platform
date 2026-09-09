@@ -938,7 +938,7 @@ with tab_faab:
                     "Drop",
                     options=["auto", "explicit"],
                     format_func=lambda m: (
-                        "Suggested (lowest-$ bench)"
+                        "Suggested (coverage-aware)"
                         if m == "auto"
                         else "Explicit drop"
                     ),
