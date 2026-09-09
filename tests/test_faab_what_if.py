@@ -7,14 +7,18 @@ import pytest
 from faab_what_if import (
     RANK_MODE_OVERALL,
     RANK_MODE_WEEKLY,
+    RETAIN_PROTECT,
+    RETAIN_STREAM,
     UNCERTAINTY_CLEAR,
     UNCERTAINTY_WITHIN_NOISE,
     analyze_add_drop,
+    classify_interim_retention,
     compute_category_deltas,
     format_delta_rows,
     format_projected_stats,
     rank_candidates,
     starters_table,
+    suggest_drop,
 )
 
 
@@ -580,3 +584,147 @@ def test_rank_view_projected_column_stays_string():
     )
     view["Projected"] = ["" if v is None else str(v) for v in view["Projected"].tolist()]
     assert view["Projected"].iloc[0] == "4 R · 2 HR · 5 RBI · 1 SB · .310 AVG"
+
+
+# ---------------------------------------------------------------------------
+# #228: coverage-aware auto-drop (interim retention bridge to #227)
+# ---------------------------------------------------------------------------
+
+
+def _ros_roster_228():
+    """OF-heavy roster: two starters, a Protect bench bat, a Stream bench bat."""
+    return [
+        hitter(201, ["OF"], 20.0, ros_value=12.0, r=4.0, hits=6.0, ab=20.0),
+        hitter(202, ["OF"], 18.0, ros_value=10.0, r=3.0, hits=5.0, ab=20.0),
+        hitter(203, ["OF"], 1.0, ros_value=15.0, r=1.0, hits=2.0, ab=10.0),
+        hitter(204, ["OF"], 5.0, ros_value=1.5, r=2.0, hits=3.0, ab=12.0),
+    ]
+
+
+def test_auto_drop_prefers_stream_over_lowest_dollar_protect():
+    """Lowest-$ bench bat is Protect (high ROS) — the Stream bat is picked."""
+    roster = _ros_roster_228()
+    add = hitter(205, ["OF"], 30.0, ros_value=2.0, r=5.0, hits=7.0, ab=20.0)
+
+    key, msg, info = suggest_drop(roster, {"OF": 2}, add)
+    assert key is not None
+    # Old policy picked H203 ($1.0). New policy must not.
+    assert key[0] == 204
+    assert info["retention"] == RETAIN_STREAM
+    assert "stream pool" in msg
+    assert "OF covered" in msg
+    assert "$5.0" in msg
+
+    result = analyze_add_drop(
+        roster, {"OF": 2}, add=add, auto_suggest_drop=True, plan_rows=FULL_PLAN
+    )
+    assert result.ok
+    assert result.drop_nfbc_id == 204
+    assert result.drop_suggested
+    assert result.drop_retention_label == RETAIN_STREAM
+    assert result.drop_coverage_note == "OF covered"
+
+
+def test_auto_drop_skips_sole_c_backup_for_covered_stream():
+    """Sole C backup (thin cover) loses to a fully covered OF stream bat."""
+    roster = [
+        hitter(211, ["C"], 20.0, ros_value=10.0),
+        hitter(212, ["C"], 18.0, ros_value=9.0),
+        hitter(213, ["C"], 1.0, ros_value=1.0),
+        hitter(214, ["OF"], 15.0, ros_value=5.0),
+        hitter(215, ["OF"], 4.0, ros_value=1.0),
+    ]
+    add = hitter(216, ["OF"], 25.0, ros_value=2.0)
+
+    key, msg, info = suggest_drop(roster, {"C": 2, "OF": 1}, add)
+    assert key is not None
+    assert key[0] == 215  # not the $1.0 sole C backup (H213)
+    assert "OF covered" in msg
+
+    result = analyze_add_drop(
+        roster,
+        {"C": 2, "OF": 1},
+        add=add,
+        auto_suggest_drop=True,
+        plan_rows=FULL_PLAN,
+    )
+    assert result.ok
+    assert result.drop_nfbc_id == 215
+
+
+def test_auto_drop_blocked_when_every_option_holes_coverage():
+    """Single-C roster + non-C add: auto-drop is blocked, explicit works."""
+    roster = [hitter(221, ["C"], 5.0, ros_value=2.0)]
+    add = hitter(222, ["OF"], 30.0, ros_value=2.0)
+
+    key, msg, info = suggest_drop(roster, {"C": 1}, add)
+    assert key is None
+    assert info is None
+    assert "coverage hole" in msg.lower()
+
+    blocked = analyze_add_drop(
+        roster, {"C": 1}, add=add, auto_suggest_drop=True, plan_rows=FULL_PLAN
+    )
+    assert not blocked.ok
+    assert "coverage hole" in blocked.message.lower()
+
+    # Explicit drop override still works.
+    explicit = analyze_add_drop(
+        roster,
+        {"C": 1},
+        add=add,
+        drop_key=(221, "hitter"),
+        auto_suggest_drop=True,
+        plan_rows=FULL_PLAN,
+    )
+    assert explicit.ok
+    assert explicit.drop_nfbc_id == 221
+    assert not explicit.drop_suggested
+
+
+def test_auto_drop_standalone_fallback_without_plan_rows():
+    """No overall-mobility plan (stand-alone league) still picks the stream."""
+    roster = _ros_roster_228()
+    add = hitter(205, ["OF"], 30.0, ros_value=2.0, r=5.0, hits=7.0, ab=20.0)
+
+    result = analyze_add_drop(
+        roster, {"OF": 2}, add=add, auto_suggest_drop=True, plan_rows=None
+    )
+    assert result.ok
+    assert result.drop_nfbc_id == 204
+    assert result.drop_retention_label == RETAIN_STREAM
+    assert "stream pool" in result.message
+
+
+def test_retention_label_override_flips_pick_for_mart_swap():
+    """Explicit #227-style labels bypass the interim ROS heuristic."""
+    roster = _ros_roster_228()
+    add = hitter(205, ["OF"], 30.0, ros_value=2.0)
+
+    key, _msg, info = suggest_drop(
+        roster,
+        {"OF": 2},
+        add,
+        retention_labels={(204, "hitter"): "protect", 203: "stream"},
+    )
+    assert key is not None
+    assert key[0] == 203
+    assert info["retention"] == RETAIN_STREAM
+
+
+def test_interim_retention_bands_degrade_unknown_without_ros():
+    assert classify_interim_retention(hitter(231, ["OF"], 1.0), is_bench=True) == (
+        "unknown"
+    )
+    assert (
+        classify_interim_retention(
+            hitter(232, ["OF"], 1.0, ros_value=15.0), is_bench=True
+        )
+        == RETAIN_PROTECT
+    )
+    assert (
+        classify_interim_retention(
+            hitter(233, ["OF"], 5.0, ros_value=1.5), is_bench=True
+        )
+        == RETAIN_STREAM
+    )
