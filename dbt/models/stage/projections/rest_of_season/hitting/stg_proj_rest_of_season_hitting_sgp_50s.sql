@@ -31,13 +31,17 @@ with base as (
 ),
 
 sgp_constants as (
-    select sgp_r,
-        sgp_hr,
-        sgp_rbi,
-        sgp_sb,
-        sgp_avg
-    from {{ ref('mart_sgp_factors') }}
-    where _filename = 'NFBC 50s 2025 Overall Standings.csv'
+    select
+        max(case when category = 'R' then final_slope end) as sgp_r,
+        max(case when category = 'HR' then final_slope end) as sgp_hr,
+        max(case when category = 'RBI' then final_slope end) as sgp_rbi,
+        max(case when category = 'SB' then final_slope end) as sgp_sb,
+        max(case when category = 'AVG' then final_slope end) as sgp_avg,
+        max(case when category = 'AVG' then final_ctx_num end) as avg_ctx_num,
+        max(case when category = 'AVG' then final_ctx_den end) as avg_ctx_den,
+        max(case when category = 'AVG' then final_ctx_rate end) as avg_ctx_rate
+    from {{ ref('mart_ros_sgp_calibration') }}
+    where format = '50s'
 ),
 
 sgps as (
@@ -60,7 +64,7 @@ sgps as (
         b.hr/s.sgp_hr as hr_sgp,
         b.rbi/s.sgp_rbi as rbi_sgp,
         b.sb/s.sgp_sb as sb_sgp,
-        ((h + 1725.0) / (ab + 6805.0) - 0.2535) / s.sgp_avg as avg_sgp
+        ((h + s.avg_ctx_num) / (ab + s.avg_ctx_den) - s.avg_ctx_rate) / s.sgp_avg as avg_sgp
     from base b
     cross join sgp_constants s
 )
