@@ -107,7 +107,6 @@ def expected_rows(formats_rows, periods_total, start_weeks_elapsed):
 
     Returns { (fmt, cat): expected dict } for all 3 formats x 10 cats.
     """
-    import datetime
     exp = {}
     for fmt in ("oc", "me", "50s"):
         rows, snap, elapsed = formats_rows.get(fmt, (None, None, None))

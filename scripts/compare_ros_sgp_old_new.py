@@ -12,11 +12,8 @@ from __future__ import annotations
 import os
 import re
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-import boto3
 
 from validate_ros_sgp_calibration import run_athena
 
@@ -90,7 +87,6 @@ def compare_sgp(model_path, extra_refs, old_table, label):
     old = {r[0]: float(r[1]) for r in old_rows}
     new = {r[0]: (r[1], float(r[3])) for r in new_rows}
     common = [k for k in new if k in old]
-    import math
     diffs = []
     for k in common:
         name, nv = new[k]
@@ -101,7 +97,6 @@ def compare_sgp(model_path, extra_refs, old_table, label):
     # Rank correlation (Spearman) on common ids.
     ro = {k: i for i, k in enumerate(sorted(common, key=lambda k: -old[k]))}
     rn = {k: i for i, k in enumerate(sorted(common, key=lambda k: -new[k][1]))}
-    import statistics
     d2 = sum((ro[k] - rn[k]) ** 2 for k in common)
     spearman = 1 - 6 * d2 / (n * (n * n - 1)) if n > 2 else float("nan")
     mad = sum(abs(d[0]) for d in diffs) / n
