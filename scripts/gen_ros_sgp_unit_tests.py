@@ -240,21 +240,24 @@ def build_test(name, description, calendar_row, staged_rows, exp):
     buf.write("          " + staged_given(staged_rows).replace("\n", "\n          ") + "\n")
     buf.write("    expect:\n")
     buf.write("      rows:\n")
+    # Every expected row must carry the IDENTICAL column set: dbt renders
+    # each row as a union-all branch with only its own keys, so a missing
+    # key on any row fails with "union has different number of fields".
+    cols = ["format", "category", "hist_slope", "current_slope_raw",
+            "current_slope", "season_completion", "current_weight",
+            "final_slope", "hist_ctx_num", "hist_ctx_den", "hist_ctx_rate",
+            "final_ctx_num", "final_ctx_den", "final_ctx_rate", "is_fallback"]
+    seen_keysets = set()
     for fmt in ("oc", "me", "50s"):
         for cat in CATS:
             e = exp[(fmt, cat)]
-            cols = ["format", "category", "hist_slope", "current_slope_raw",
-                    "current_slope", "season_completion", "current_weight",
-                    "final_slope"]
-            if e["is_ratio"]:
-                cols += ["hist_ctx_num", "hist_ctx_den", "hist_ctx_rate",
-                         "final_ctx_num", "final_ctx_den", "final_ctx_rate"]
-            cols += ["is_fallback"]
             parts = []
             for k in cols:
                 v = e[k]
                 parts.append(f"{k}: {fmt_val(v)}")
             buf.write("        - {" + ", ".join(parts) + "}\n")
+            seen_keysets.add(tuple(cols))
+    assert len(seen_keysets) == 1
     return buf.getvalue()
 
 
