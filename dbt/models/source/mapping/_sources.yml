@@ -5,8 +5,13 @@ sources:
     database: AwsDataCatalog
     schema: mapping
     tables:
+      # Shared infrastructure: carries only the preseason tag. It previously
+      # also carried inseason, which made every downstream model match
+      # tag:inseason+ and dragged all 34 preseason projection models into
+      # in-season builds. Selection entry points are the season sources;
+      # dependents still build the map as an ancestor whenever selected.
       - name: player_id_map
-        tags: [preseason, inseason]
+        tags: [preseason]
         external:
           location: s3://dn-lakehouse-dev/mapping/mpd_player_id_map/
         config:
