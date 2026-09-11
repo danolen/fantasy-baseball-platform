@@ -1,6 +1,26 @@
 version: 2
 
 models:
+  - name: stg_nfbc_roster_membership
+    description: >-
+      Weekly owned-roster membership from daily NFBC snapshots (#185).
+      Grain is one row per (league, owner, nfbc_id, scoring week), anchored
+      to the first snapshot of each Monday-start week (post-Sunday-FAAB
+      roster). Free-agent rows are excluded. Configured leagues only.
+    columns:
+      - name: league
+        data_tests:
+          - not_null
+      - name: owner
+        data_tests:
+          - not_null
+      - name: nfbc_id
+        data_tests:
+          - not_null
+      - name: week_key
+        data_tests:
+          - not_null
+
   - name: stg_nfbc_in_season_overall_overview
     description: >-
       Typed NFBC overall overview standings. Grain is one row per contest

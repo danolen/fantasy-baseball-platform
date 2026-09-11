@@ -214,6 +214,50 @@ models:
         data_tests:
           - not_null
 
+  - name: mart_retained_core_evidence
+    description: >-
+      Observed 2- and 3-week roster retention by format, row type, position
+      group, and current ROS $ band (#185). Retention means still owned,
+      not started. Justifies the ros_core_assumptions seed thresholds.
+      50s excluded (no FAAB). Grain is one row per
+      (format, row_type, pos_group, ros_band).
+    columns:
+      - name: format
+        data_tests:
+          - not_null
+      - name: ros_band
+        data_tests:
+          - not_null
+
+  - name: mart_streaming_churn_evidence
+    description: >-
+      Observed weekly adds/drops per team by format (#185). Justifies the
+      per-scenario streamable slots in the ros_core_assumptions seed.
+      Grain is one row per format.
+    columns:
+      - name: format
+        data_tests:
+          - not_null
+          - unique
+
+  - name: mart_fa_replacement_curve
+    description: >-
+      Available weekly $ by free-agent rank within each league, median
+      across leagues per format (#185). Replacement production for #188 is
+      read off this curve through the rank windows in the
+      ros_core_assumptions seed. Grain is one row per
+      (format, row_type, fa_rank).
+    columns:
+      - name: format
+        data_tests:
+          - not_null
+      - name: row_type
+        data_tests:
+          - not_null
+      - name: fa_rank
+        data_tests:
+          - not_null
+
   - name: mart_sgp_percentiles
     description: One row per (_filename, category).
     columns:
