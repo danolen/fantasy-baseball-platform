@@ -193,6 +193,27 @@ models:
           - unique
           - not_null
 
+  - name: mart_ros_sgp_calibration
+    description: >-
+      ROS SGP calibration blending completed-season (2025) slopes with
+      current-2026-season slopes reconstructed from the automated overall
+      category-stat feed (#184; The Process 2024 pp. 71–75). Grain is one row
+      per (format, category). Counting slopes annualize by the
+      season-completion fraction; AVG/ERA/WHIP keep blended
+      numerator/denominator team contexts instead. Blend weight on the
+      current season is linear in completion. ME is historical-only
+      (is_fallback). Consumed by the six rest-of-season SGP staging models.
+    columns:
+      - name: format
+        data_tests:
+          - not_null
+      - name: category
+        data_tests:
+          - not_null
+      - name: final_slope
+        data_tests:
+          - not_null
+
   - name: mart_sgp_percentiles
     description: One row per (_filename, category).
     columns:

@@ -28,13 +28,20 @@ with base as (
 ),
 
 sgp_constants as (
-    select sgp_k,
-        sgp_w,
-        sgp_s,
-        sgp_era,
-        sgp_whip
-    from {{ ref('mart_sgp_factors') }}
-    where _filename = 'NFBC ME 2025 Overall Standings.csv'
+    select
+        max(case when category = 'K' then final_slope end) as sgp_k,
+        max(case when category = 'W' then final_slope end) as sgp_w,
+        max(case when category = 'S' then final_slope end) as sgp_s,
+        max(case when category = 'ERA' then final_slope end) as sgp_era,
+        max(case when category = 'ERA' then final_ctx_num end) as era_ctx_num,
+        max(case when category = 'ERA' then final_ctx_den end) as era_ctx_den,
+        max(case when category = 'ERA' then final_ctx_rate end) as era_ctx_rate,
+        max(case when category = 'WHIP' then final_slope end) as sgp_whip,
+        max(case when category = 'WHIP' then final_ctx_num end) as whip_ctx_num,
+        max(case when category = 'WHIP' then final_ctx_den end) as whip_ctx_den,
+        max(case when category = 'WHIP' then final_ctx_rate end) as whip_ctx_rate
+    from {{ ref('mart_ros_sgp_calibration') }}
+    where format = 'me'
 ),
 
 sgps as (
@@ -44,8 +51,8 @@ sgps as (
         b.k/s.sgp_k as k_sgp,
         b.w/s.sgp_w as w_sgp,
         b.sv/s.sgp_s as sv_sgp,
-        (((499 + er) * 9) / (1155 + ip) - 3.885) / s.sgp_era as era_sgp,
-        ((1415 + h + bb) / (1155 + ip) - 1.223) / s.sgp_whip as whip_sgp
+        (((s.era_ctx_num + er) * 9) / (s.era_ctx_den + ip) - s.era_ctx_rate) / s.sgp_era as era_sgp,
+        ((s.whip_ctx_num + h + bb) / (s.whip_ctx_den + ip) - s.whip_ctx_rate) / s.sgp_whip as whip_sgp
     from base b
     cross join sgp_constants s
 )
