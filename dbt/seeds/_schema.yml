@@ -1,6 +1,59 @@
 version: 2
 
 seeds:
+  - name: ros_core_assumptions
+    description: >-
+      Versioned retained-core / streaming assumptions for projected overall
+      finish (#185, consumed by #188). One row per
+      (assumption_set, format, player_type, pos_group): ROS $ core threshold
+      (pos_group C rows override ALL), streamable hitter/pitcher slots per
+      stable/balanced/aggressive scenario, and FA-rank windows
+      (inclusive low-high) mapping scenarios to the replacement curve
+      (aggressive = best-ranked window). Thresholds justified by
+      mart_retained_core_evidence W2/W3 retention; slots by
+      mart_streaming_churn_evidence adds percentiles; windows are the
+      maintainer-agreed 2-5 / 5-10 / 10-15. 50s has no FAAB and is absent
+      by design. Edit here — do not hardcode in SQL.
+    config:
+      column_types:
+        core_threshold_ros: double
+    columns:
+      - name: assumption_set
+        data_tests:
+          - not_null
+      - name: format
+        data_tests:
+          - not_null
+      - name: player_type
+        data_tests:
+          - not_null
+      - name: pos_group
+        data_tests:
+          - not_null
+      - name: core_threshold_ros
+        data_tests:
+          - not_null
+
+  - name: ros_player_overrides
+    description: >-
+      Manual retained-core overrides for projected overall finish (#185,
+      consumed by #188): force_status core keeps a player's full ROS line,
+      stream drops them to replacement. Lets the maintainer overrule the
+      assumptions seed per player without changing SQL. Empty until needed.
+    columns:
+      - name: assumption_set
+        data_tests:
+          - not_null
+      - name: nfbc_id
+        data_tests:
+          - not_null
+          - unique
+      - name: force_status
+        data_tests:
+          - not_null
+          - accepted_values:
+              values: ['core', 'stream']
+
   - name: projection_divergence_thresholds
     description: >-
       Configurable elevated/extreme divergence ratios and minimum season
