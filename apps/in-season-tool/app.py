@@ -39,7 +39,6 @@ from lineup_weights import (
     OBJECTIVE_TEAM_FIT,
     ratio_context_from_plan_rows,
     team_fit_inputs_ready,
-    team_fit_optimize_kwargs,
     weights_from_plan_rows,
 )
 from projection_divergence import flag_caption, summarize_player_flags
@@ -2336,15 +2335,22 @@ with tab_overall:
         team_all["pos_array"] = team_all["pos_raw"].apply(_parse_pos)
         players = team_all.to_dict(orient="records")
         plan_records = team_plan.to_dict(orient="records")
-        opt_kwargs, team_fit_ready, team_fit_msg = team_fit_optimize_kwargs(
-            plan_records
+        # Use the helpers that existed before #281 so Streamlit Cloud can
+        # rerun new app.py against a still-cached lineup_weights module.
+        weights = weights_from_plan_rows(plan_records)
+        ratio_context = ratio_context_from_plan_rows(plan_records)
+        team_fit_ready, team_fit_msg = team_fit_inputs_ready(
+            weights, ratio_context
         )
+        opt_kwargs = {}
         if not team_fit_ready:
             st.warning(
                 f"Team-fit unavailable for `{selected_team}`: {team_fit_msg} "
                 "Falling back to Neutral `$` for the expected lineup."
             )
         else:
+            opt_kwargs["weights"] = weights
+            opt_kwargs["ratio_context"] = ratio_context
             st.caption(
                 f"Expected lineup uses Team-fit overall-pts weights for "
                 f"`{selected_team}` (not Neutral Razzball `$`)."
