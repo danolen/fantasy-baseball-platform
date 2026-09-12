@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from lineup_optimizer import optimize_week
+from lineup_weights import team_fit_optimize_kwargs
 from weekly_category_plan import (
     build_category_plan_rows,
     classify_gap,
@@ -125,3 +127,78 @@ def test_build_category_plan_rows_wires_projection_and_recommendation():
     assert rows[0]["maintain_label"] == "no meaningful difference"
     assert rows[0]["stretch_label"] == "no meaningful difference"
     assert rows[0]["recommendation"] == "no meaningful difference"
+
+
+def test_weekly_plan_projection_uses_team_fit_starters_not_neutral_dollars():
+    """Overall Standings Projected column follows the team-fit Monday lineup."""
+    slugger = {
+        "nfbc_id": 1,
+        "player_name": "Slugger",
+        "row_type": "hitter",
+        "pos_raw": "2B",
+        "pos_array": ["2B"],
+        "dollars": 20.0,
+        "dollars_monday_thursday": 20.0,
+        "r": 4.0,
+        "hr": 2.0,
+        "rbi": 5.0,
+        "sb": 0.0,
+        "hits": 6.0,
+        "ab": 24.0,
+    }
+    speedster = {
+        "nfbc_id": 2,
+        "player_name": "Speedster",
+        "row_type": "hitter",
+        "pos_raw": "2B",
+        "pos_array": ["2B"],
+        "dollars": 12.0,
+        "dollars_monday_thursday": 12.0,
+        "r": 3.0,
+        "hr": 0.0,
+        "rbi": 2.0,
+        "sb": 2.0,
+        "hits": 6.0,
+        "ab": 24.0,
+    }
+    players = [slugger, speedster]
+    slots = {"2B": 1}
+    plan_rows = [
+        {"category": "R", "overall_points_per_raw_unit": 2.5},
+        {"category": "HR", "overall_points_per_raw_unit": 1.0},
+        {"category": "RBI", "overall_points_per_raw_unit": 0.5},
+        {"category": "SB", "overall_points_per_raw_unit": 18.0},
+        {
+            "category": "AVG",
+            "overall_points_per_raw_unit": 22.5,
+            "volume_h": 1406.0,
+            "volume_ab": 5326.0,
+        },
+    ]
+
+    neutral = optimize_week(players, slots, mode="monday")
+    opt_kwargs, ready, msg = team_fit_optimize_kwargs(plan_rows)
+    assert ready, msg
+    team_fit = optimize_week(players, slots, mode="monday", **opt_kwargs)
+
+    ui_plan = [
+        {
+            "category": "SB",
+            "higher_is_better": True,
+            "is_ratio": False,
+            "current_raw": 142.0,
+            "current_category_points": 2000.0,
+            "maintain_weekly_target": 1.0,
+            "stretch_weekly_target_25": 1.05,
+            "noise_floor_raw": 1.0,
+            "teams_at_current_points": 17,
+        }
+    ]
+    neutral_rows = build_category_plan_rows(
+        ui_plan, neutral.totals, stretch_points=25
+    )
+    team_fit_rows = build_category_plan_rows(
+        ui_plan, team_fit.totals, stretch_points=25
+    )
+    assert neutral_rows[0]["projection"] == pytest.approx(0.0)
+    assert team_fit_rows[0]["projection"] == pytest.approx(2.0)
