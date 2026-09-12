@@ -1,6 +1,7 @@
 """Build optimize_week weights / ratio_context from weekly plan (mobility) rows.
 
-Used by the Lineup Optimizer Team-fit mode (#218). Weight keys match
+Used by the Lineup Optimizer Team-fit mode (#218) and Overall Standings
+Weekly Plan projected stats. Weight keys match
 ``lineup_optimizer.score_player`` (lowercase category codes).
 """
 
@@ -129,3 +130,24 @@ def team_fit_inputs_ready(
                 "(rebuild mart_weekly_category_plan).",
             )
     return True, ""
+
+
+def team_fit_optimize_kwargs(
+    plan_rows: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, Any], bool, str]:
+    """``optimize_week`` kwargs for Team-fit, or empty when not ready.
+
+    Returns ``(kwargs, ready, message)``. Callers pass ``**kwargs`` into
+    ``optimize_week``; when ``ready`` is false they should keep Neutral ``$``
+    and surface ``message``.
+    """
+    weights = weights_from_plan_rows(plan_rows)
+    ratio_context = ratio_context_from_plan_rows(plan_rows)
+    ready, msg = team_fit_inputs_ready(weights, ratio_context)
+    if not ready:
+        return {}, False, msg
+    return (
+        {"weights": weights, "ratio_context": ratio_context},
+        True,
+        "",
+    )

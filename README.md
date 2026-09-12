@@ -10,7 +10,7 @@ Roadmap lives in [GitHub issues](https://github.com/danolen/fantasy-baseball-pla
 
 | Area | Highlights |
 |------|------------|
-| **In-season tool** | FAAB worksheet + what-if add/drop (split Mon–Thu / Fri–Sun); lineup optimizer (exact slot assignment, Monday lock / Friday hitter swap, Neutral `$` or Team-fit overall-pts weights); **Overall Standings** (rank/points, category mobility, Weekly Plan maintain/stretch); **ROS Rankings** (format marts, draft-tool filters) |
+| **In-season tool** | FAAB worksheet + what-if add/drop (split Mon–Thu / Fri–Sun); lineup optimizer (exact slot assignment, Monday lock / Friday hitter swap, Neutral `$` or Team-fit overall-pts weights); **Overall Standings** (rank/points, category mobility, Weekly Plan maintain/stretch vs team-fit Monday lineup); **ROS Rankings** (format marts, draft-tool filters) |
 | **dbt marts** | FAAB worksheet; weekly lineup inputs; overall category mobility (+ field-edge / pts-per-unit); weekly category plan |
 | **Ingest** | Prefect flows for NFBC in-season players + overall standings, FanGraphs ROS, FTN FAAB, Razzball weekly / Mon–Thu / weekend ([`flows/`](flows/)) |
 | **Draft tool** | Rankings, ADP, DynamoDB draft tracking |

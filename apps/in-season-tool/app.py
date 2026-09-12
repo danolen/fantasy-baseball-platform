@@ -39,6 +39,7 @@ from lineup_weights import (
     OBJECTIVE_TEAM_FIT,
     ratio_context_from_plan_rows,
     team_fit_inputs_ready,
+    team_fit_optimize_kwargs,
     weights_from_plan_rows,
 )
 from projection_divergence import flag_caption, summarize_player_flags
@@ -1946,8 +1947,8 @@ with tab_overall:
     st.caption(
         "Current contest rank and category mobility for automated overall "
         "feeds (OC, NFBC 50), plus Weekly Plan maintain/stretch vs the "
-        "expected Monday lineup. Projected Finish scenarios ship separately "
-        "after the projected-finish mart (#188)."
+        "expected Monday team-fit lineup. Projected Finish scenarios ship "
+        "separately after the projected-finish mart (#188)."
     )
 
     try:
@@ -2243,9 +2244,9 @@ with tab_overall:
     # ------------------------------------------------------------------
     st.markdown("### Weekly Plan")
     st.caption(
-        "Maintain vs stretch targets compared to the expected Monday lineup "
-        "projection. Recommendation is suppressed when the gap is inside the "
-        "local tie-cluster noise floor."
+        "Maintain vs stretch targets compared to the expected Monday "
+        "team-fit lineup (overall pts / mobility). Recommendation is "
+        "suppressed when the gap is inside the local tie-cluster noise floor."
     )
 
     if plan_df.empty:
@@ -2334,10 +2335,25 @@ with tab_overall:
 
         team_all["pos_array"] = team_all["pos_raw"].apply(_parse_pos)
         players = team_all.to_dict(orient="records")
+        plan_records = team_plan.to_dict(orient="records")
+        opt_kwargs, team_fit_ready, team_fit_msg = team_fit_optimize_kwargs(
+            plan_records
+        )
+        if not team_fit_ready:
+            st.warning(
+                f"Team-fit unavailable for `{selected_team}`: {team_fit_msg} "
+                "Falling back to Neutral `$` for the expected lineup."
+            )
+        else:
+            st.caption(
+                f"Expected lineup uses Team-fit overall-pts weights for "
+                f"`{selected_team}` (not Neutral Razzball `$`)."
+            )
         result = optimize_week(
             players,
             {**hitter_slots, **pitcher_slots},
             mode="monday",
+            **opt_kwargs,
         )
         totals = result.totals or {}
         missing_ids = result.missing_projection_ids or []
@@ -2398,9 +2414,11 @@ with tab_overall:
 
     st.markdown("#### Targets vs expected lineup")
     st.caption(
-        "**Projected** = starters from the Monday optimizer (neutral $). "
-        "**Recommendation** repeats the stretch comparison and shows "
-        "`no meaningful difference` when |gap| ≤ noise floor "
+        "**Projected** = starters from the Monday optimizer using Team-fit "
+        "overall-pts / mobility weights (same objective as Lineup Optimizer "
+        "Team-fit). Falls back to Neutral `$` when those weights are "
+        "unavailable. **Recommendation** repeats the stretch comparison and "
+        "shows `no meaningful difference` when |gap| ≤ noise floor "
         "(max of tie-cluster raw width and one raw unit)."
     )
     st.dataframe(view, use_container_width=True, hide_index=True)
@@ -2413,6 +2431,9 @@ with tab_overall:
             "to pace; ratios use the cutline rate for +N category points.\n"
             "- **Noise floor**: `max(tie_cluster_raw_width, raw_unit_size)` so "
             "fractional projections inside a point island are not ranked.\n"
+            "- **Expected lineup**: Monday `optimize_week` with Team-fit "
+            "weights from this team's `overall_points_per_raw_unit` (not "
+            "Neutral Razzball `$`).\n"
             "- Stand-alone leagues never enter this mart — they keep FAAB + "
             "Lineup Optimizer only."
         )

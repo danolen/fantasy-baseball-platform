@@ -8,6 +8,7 @@ from lineup_optimizer import optimize_week
 from lineup_weights import (
     ratio_context_from_plan_rows,
     team_fit_inputs_ready,
+    team_fit_optimize_kwargs,
     weights_from_plan_rows,
 )
 
@@ -118,3 +119,28 @@ def test_team_fit_weights_flip_sit_start_vs_neutral_dollars():
     )
     assert team_fit.starter_ids() == {2}
     assert team_fit.starter_ids() != neutral.starter_ids()
+
+
+def test_team_fit_optimize_kwargs_ready_and_fallback():
+    ready_rows = [
+        {"category": "SB", "overall_points_per_raw_unit": 18.0},
+        {
+            "category": "AVG",
+            "overall_points_per_raw_unit": 22.5,
+            "volume_h": 1406.0,
+            "volume_ab": 5326.0,
+        },
+    ]
+    kwargs, ready, msg = team_fit_optimize_kwargs(ready_rows)
+    assert ready
+    assert msg == ""
+    assert kwargs["weights"]["sb"] == 18.0
+    assert kwargs["ratio_context"]["hits"] == 1406.0
+
+    missing_avg_volume = [
+        {"category": "AVG", "overall_points_per_raw_unit": 22.5},
+    ]
+    kwargs, ready, msg = team_fit_optimize_kwargs(missing_avg_volume)
+    assert not ready
+    assert kwargs == {}
+    assert "H/AB" in msg
