@@ -46,6 +46,33 @@ def gap_is_meaningful(gap_raw: float | None, floor_raw: float | None) -> bool:
     return abs(float(gap_raw)) > float(floor_raw)
 
 
+def overall_points_for_raw_delta(
+    raw_delta: float | None,
+    *,
+    overall_points_per_raw_unit: float | None,
+    raw_unit_size: float | None,
+) -> float | None:
+    """Convert a raw category delta into overall standings points.
+
+    ``mart_overall_category_mobility`` prices a category point as
+    ``raw_unit_size / raw_per_category_point``, so
+    ``overall_points_per_raw_unit`` is points per *raw_unit_size* — 0.01 of
+    ERA, 0.005 of WHIP, 0.001 of AVG, 1.0 for counting stats. The raw delta
+    therefore has to be expressed in those units before scaling. Multiplying a
+    raw delta by the column directly understates ERA by 100x, WHIP by 200x and
+    AVG by 1000x; counting categories are unaffected because their unit is 1.0.
+
+    ``lineup_optimizer`` already divides by ``RATIO_UNITS`` before applying the
+    weight, so weights fed to the optimizer stay in per-``raw_unit_size`` form.
+    """
+    if raw_delta is None or overall_points_per_raw_unit is None:
+        return None
+    unit = float(raw_unit_size or 1.0)
+    if unit <= 0:
+        unit = 1.0
+    return (float(raw_delta) / unit) * abs(float(overall_points_per_raw_unit))
+
+
 def classify_gap(
     projection: float | None,
     target: float | None,

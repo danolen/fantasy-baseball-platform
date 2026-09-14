@@ -437,10 +437,13 @@ models:
           - not_null
       - name: overall_points_per_raw_unit
         description: >-
-          Reciprocal of raw_per_category_point scaled by raw_unit_size.
-          Multiply a projected raw delta by this to estimate overall-point
-          impact. Prefer this column over inverting raw_per_category_point
-          in consumers.
+          Reciprocal of raw_per_category_point scaled by raw_unit_size, i.e.
+          overall points per raw_unit_size — NOT per 1.0 of the raw stat.
+          Divide a projected raw delta by raw_unit_size first, then multiply:
+          overall_pts = (raw_delta / raw_unit_size) * this. Multiplying a raw
+          delta directly understates ERA by 100x, WHIP by 200x and AVG by
+          1000x; counting categories are unaffected (unit 1.0). Prefer this
+          column over inverting raw_per_category_point in consumers.
         data_tests:
           - not_null:
               config:

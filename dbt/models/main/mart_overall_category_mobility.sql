@@ -14,6 +14,9 @@
 -- and flag slope_is_clamped rather than returning NULL. Ladder rungs beyond
 -- remaining headroom are 'clamped' (partial headroom) or 'maxed' (none).
 -- overall_points_per_raw_unit is the reciprocal consumers need for weighting.
+-- It is priced per raw_unit_size (0.01 ERA / 0.005 WHIP / 0.001 AVG / 1.0
+-- counting), so consumers must divide a raw delta by raw_unit_size before
+-- multiplying. See weekly_category_plan.overall_points_for_raw_delta.
 
 {% set slope_window = 25 %}
 {% set ladder_deltas = [1, 5, 10, 25, 50, 100] %}

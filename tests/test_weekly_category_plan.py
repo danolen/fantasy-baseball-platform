@@ -11,9 +11,57 @@ from weekly_category_plan import (
     classify_gap,
     gap_is_meaningful,
     noise_floor_raw,
+    overall_points_for_raw_delta,
     projection_for_category,
     stretch_target_column,
 )
+
+
+def test_overall_points_scale_by_raw_unit_size():
+    """overall_points_per_raw_unit is priced per raw_unit_size, not per 1.0."""
+    # Counting categories: unit is 1.0, so the raw delta scales directly.
+    assert overall_points_for_raw_delta(
+        3.0, overall_points_per_raw_unit=7.93, raw_unit_size=1.0
+    ) == pytest.approx(23.79)
+
+    # ERA is priced per 0.01. A 0.044 blowup is ~4.4 units, not 0.044.
+    assert overall_points_for_raw_delta(
+        0.044, overall_points_per_raw_unit=31.25, raw_unit_size=0.01
+    ) == pytest.approx(137.5)
+
+    # WHIP is priced per 0.005.
+    assert overall_points_for_raw_delta(
+        0.0055, overall_points_per_raw_unit=62.5, raw_unit_size=0.005
+    ) == pytest.approx(68.75)
+
+    # AVG is priced per 0.001.
+    assert overall_points_for_raw_delta(
+        0.002, overall_points_per_raw_unit=19.23, raw_unit_size=0.001
+    ) == pytest.approx(38.46)
+
+
+def test_overall_points_missing_unit_defaults_to_one():
+    assert overall_points_for_raw_delta(
+        2.0, overall_points_per_raw_unit=5.0, raw_unit_size=None
+    ) == pytest.approx(10.0)
+    assert overall_points_for_raw_delta(
+        2.0, overall_points_per_raw_unit=5.0, raw_unit_size=0.0
+    ) == pytest.approx(10.0)
+
+
+def test_overall_points_returns_none_on_missing_inputs():
+    assert (
+        overall_points_for_raw_delta(
+            None, overall_points_per_raw_unit=5.0, raw_unit_size=1.0
+        )
+        is None
+    )
+    assert (
+        overall_points_for_raw_delta(
+            1.0, overall_points_per_raw_unit=None, raw_unit_size=1.0
+        )
+        is None
+    )
 
 
 def test_stretch_ladder_rejects_one_and_five():
