@@ -4,6 +4,9 @@
     )
 }}
 
+-- Fangraphs THE BAT X sometimes emits ROS rows with blank counting stats after
+-- IL/DFA/call-up changes. cast('' as double) fails, and dividing by 0 PA would
+-- yield NaN downstream (SGP, dollar value). Drop those rows here.
 select ids.id,
     ids.name,
     ids.team,
@@ -26,3 +29,4 @@ select ids.id,
 from {{ ref('src_fangraphs_projections_rest_of_season_hitting') }} proj
 inner join {{ ref('stg_mpd_player_id_map') }} ids
     on proj.playerid = ids.idfangraphs
+where try_cast(nullif(trim(proj.pa), '') as double) > 0
