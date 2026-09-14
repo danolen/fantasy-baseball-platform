@@ -20,6 +20,7 @@ from weekly_category_plan import (
     CATEGORY_ORDER,
     gap_is_meaningful,
     noise_floor_raw,
+    overall_points_for_raw_delta,
     projection_for_category,
 )
 
@@ -396,8 +397,12 @@ def compute_category_deltas(
                 if cat in ("ERA", "WHIP")
                 else float(delta_raw)
             )
-            d_pts = signed * abs(pts_per_f)
-            net_overall += d_pts
+            d_pts = overall_points_for_raw_delta(
+                signed,
+                overall_points_per_raw_unit=pts_per_f,
+                raw_unit_size=plan.get("raw_unit_size"),
+            )
+            net_overall += d_pts or 0.0
 
         uncertainty = UNCERTAINTY_UNKNOWN
         if delta_raw is not None and floor_f is not None:
@@ -918,7 +923,14 @@ def _tie_threshold_overall_pts(
             continue
         if floor_f is None or pts_f is None:
             continue
-        thresholds.append(abs(floor_f) * abs(pts_f))
+        scaled = overall_points_for_raw_delta(
+            floor_f,
+            overall_points_per_raw_unit=pts_f,
+            raw_unit_size=plan.get("raw_unit_size"),
+        )
+        if scaled is None:
+            continue
+        thresholds.append(abs(scaled))
     if not thresholds:
         return None
     return min(thresholds)

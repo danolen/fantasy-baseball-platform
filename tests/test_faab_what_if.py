@@ -213,8 +213,11 @@ def test_rank_switches_between_weekly_and_team_fit():
         hitter(1, ["OF"], 15.0, r=3.0, hr=1.0, rbi=3.0, sb=0.0, hits=5.0, ab=20.0),
         hitter(2, ["OF"], 5.0, r=1.0, hr=0.0, rbi=1.0, sb=0.0, hits=2.0, ab=10.0),
     ]
+    # Held AVG-neutral (same hits/ab) so SB is the only ratio-free differentiator.
+    # Correctly scaled AVG is worth 20 pts per 0.001, which would otherwise swamp
+    # the SB weight this test is exercising.
     # Candidate A: big weekly $, no SB
-    a = hitter(10, ["OF"], 25.0, r=4.0, hr=2.0, rbi=5.0, sb=0.0, hits=6.0, ab=20.0)
+    a = hitter(10, ["OF"], 25.0, r=4.0, hr=2.0, rbi=5.0, sb=0.0, hits=5.0, ab=20.0)
     # Candidate B: lower $, lots of SB (team-fit when SB pts/unit is huge)
     b = hitter(11, ["OF"], 16.0, r=2.0, hr=0.0, rbi=2.0, sb=3.0, hits=5.0, ab=20.0)
 
@@ -300,6 +303,49 @@ def test_net_delta_carries_uncertainty_indication():
 
     table = format_delta_rows(deltas)
     assert "uncertainty" in table[0]
+
+
+def test_ratio_deltas_scale_by_raw_unit_size():
+    """ERA/WHIP points are priced per 0.01 / 0.005, not per 1.0 of the rate.
+
+    Multiplying the raw delta directly understated ERA by 100x and WHIP by
+    200x, which made a blowup start look nearly free next to a win.
+    """
+    baseline = {"r": 0.0, "hr": 0.0, "rbi": 0.0, "sb": 0.0, "hits": 0.0, "ab": 0.0,
+                "avg": None, "k": 0.0, "w": 0.0, "sv": 0.0,
+                "ip": 100.0, "er": 40.0, "hits_allowed": 90.0, "walks_allowed": 30.0,
+                "era": 3.60, "whip": 1.20}
+    # 5 IP / 6 ER / 10 baserunners tacked on: ERA 3.60 -> 3.9429, WHIP 1.20 -> 1.2381
+    what_if = dict(baseline, ip=105.0, er=46.0, hits_allowed=97.0,
+                   walks_allowed=33.0, era=46.0 * 9 / 105.0, whip=130.0 / 105.0)
+    deltas, net, _ = compute_category_deltas(baseline, what_if, FULL_PLAN)
+    by_cat = {d.category: d for d in deltas}
+
+    era_delta = by_cat["ERA"].delta_raw
+    whip_delta = by_cat["WHIP"].delta_raw
+    assert era_delta == pytest.approx(0.342857, abs=1e-5)
+    assert whip_delta == pytest.approx(0.038095, abs=1e-5)
+
+    # ERA pts_per=10.0 per 0.01 unit -> 0.342857 / 0.01 * 10 = 342.86, and worse
+    # ERA is a loss, so the estimate is negative. The old code returned -3.43.
+    assert by_cat["ERA"].delta_overall_pts_estimate == pytest.approx(-342.86, abs=0.1)
+    # WHIP pts_per=20.0 per 0.005 unit -> 0.038095 / 0.005 * 20 = 152.38 (was -0.76)
+    assert by_cat["WHIP"].delta_overall_pts_estimate == pytest.approx(-152.38, abs=0.1)
+    assert net == pytest.approx(-342.86 - 152.38, abs=0.5)
+
+
+def test_ratio_delta_dwarfs_a_single_win():
+    """Guards the decision this bug corrupted: ratio damage vs one win."""
+    baseline = {"r": 0.0, "hr": 0.0, "rbi": 0.0, "sb": 0.0, "hits": 0.0, "ab": 0.0,
+                "avg": None, "k": 0.0, "w": 0.0, "sv": 0.0,
+                "ip": 100.0, "er": 40.0, "hits_allowed": 90.0, "walks_allowed": 30.0,
+                "era": 3.60, "whip": 1.20}
+    # A win plus a blowup that inflates ERA/WHIP.
+    what_if = dict(baseline, w=1.0, ip=104.0, er=48.0, hits_allowed=98.0,
+                   walks_allowed=34.0, era=48.0 * 9 / 104.0, whip=132.0 / 104.0)
+    _, net, _ = compute_category_deltas(baseline, what_if, FULL_PLAN)
+    # W is 10 pts/win in the fixture; the ratio hit must dominate it.
+    assert net is not None and net < -100.0
 
 
 def test_rank_unmatched_warning():
