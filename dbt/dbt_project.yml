@@ -40,6 +40,14 @@ seeds:
       +tags: [inseason]
     faab_pacing_curves:
       +tags: [inseason]
+    ros_core_assumptions:
+      +tags: [inseason]
+    ros_player_overrides:
+      +tags: [inseason]
+    league_roster_slots:
+      +tags: [inseason]
+    season_scoring_calendar:
+      +tags: [inseason]
 
 
 # Configuring models
