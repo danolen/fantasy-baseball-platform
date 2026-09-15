@@ -53,6 +53,21 @@ from ros_rankings import (
     format_ros_display,
     ros_table_name,
 )
+from projected_finish import (
+    FAAB_WORKSHEET_NOTE,
+    assumptions_lines,
+    category_detail_frame,
+    empty_fallback_message,
+    filter_team_rows,
+    first_row,
+    ordered_scenarios,
+    points_metric_value,
+    rank_metric_value,
+    scenario_label,
+    scenario_row,
+    snapshot_is_stale,
+    streaming_applicable,
+)
 from weekly_category_plan import (
     CATEGORY_ORDER,
     DEFAULT_STRETCH,
@@ -254,6 +269,30 @@ def load_category_mobility(league):
         SELECT *
         FROM {ATHENA_SCHEMA}.mart_overall_category_mobility
         WHERE contest_key = '{league}'
+          AND is_latest_snapshot = true
+    """
+    return _optimize_df(_connect().cursor().execute(query).as_pandas())
+
+
+@st.cache_data(ttl=900)
+def load_projected_finish(league):
+    """Latest projected-finish parent rows for one configured overall team."""
+    query = f"""
+        SELECT *
+        FROM {ATHENA_SCHEMA}.mart_projected_overall_finish
+        WHERE league = '{league}'
+          AND is_latest_snapshot = true
+    """
+    return _optimize_df(_connect().cursor().execute(query).as_pandas())
+
+
+@st.cache_data(ttl=900)
+def load_projected_finish_categories(league):
+    """Latest projected-finish category rows for one configured overall team."""
+    query = f"""
+        SELECT *
+        FROM {ATHENA_SCHEMA}.mart_projected_overall_finish_category
+        WHERE league = '{league}'
           AND is_latest_snapshot = true
     """
     return _optimize_df(_connect().cursor().execute(query).as_pandas())
@@ -1945,9 +1984,9 @@ with tab_overall:
     st.subheader(f"Overall Standings — {selected_league}")
     st.caption(
         "Current contest rank and category mobility for automated overall "
-        "feeds (OC, NFBC 50), plus Weekly Plan maintain/stretch vs the "
-        "expected Monday team-fit lineup. Projected Finish scenarios ship "
-        "separately after the projected-finish mart (#188)."
+        "feeds (OC, NFBC 50), plus a **Projected finish** forecast vs contest "
+        "cutlines and Weekly Plan maintain/stretch vs the expected Monday "
+        "team-fit lineup. FAAB add/drop impact stays on the FAAB Worksheet."
     )
 
     try:
@@ -2237,6 +2276,134 @@ with tab_overall:
                 "- **Headroom**: `open` / `partial` / `maxed` when near the "
                 "field edge (#205)."
             )
+
+    # ------------------------------------------------------------------
+    # Projected finish (#221) — forecast vs cutlines, not standings
+    # Rendered before Weekly Plan so an empty plan `st.stop()` cannot hide it.
+    # ------------------------------------------------------------------
+    st.markdown("### Projected finish")
+    st.caption(
+        "Forecast overall finish for **this configured team** against "
+        "contest cutlines — **not** official standings and **not** the "
+        "mobility grid above. Stable / balanced / aggressive are roster "
+        "assumption scenarios from `mart_projected_overall_finish`."
+    )
+
+    finish_df = pd.DataFrame()
+    finish_cat_df = pd.DataFrame()
+    finish_err = None
+    try:
+        finish_df = load_projected_finish(league_key)
+        finish_cat_df = load_projected_finish_categories(league_key)
+    except Exception as e:
+        finish_err = e
+
+    if finish_err is not None:
+        st.warning(empty_fallback_message(load_error=finish_err))
+        st.caption(FAAB_WORKSHEET_NOTE)
+    elif finish_df.empty:
+        st.info(empty_fallback_message(no_rows=True))
+        st.caption(FAAB_WORKSHEET_NOTE)
+    else:
+        my_finish = filter_team_rows(finish_df, selected_team)
+        my_cat = filter_team_rows(finish_cat_df, selected_team)
+        if my_finish.empty:
+            st.warning(
+                empty_fallback_message(
+                    no_team_match=True, selected_team=selected_team
+                )
+            )
+            st.caption(FAAB_WORKSHEET_NOTE)
+        else:
+            overview_snap = None
+            if not my_overview.empty:
+                overview_snap = my_overview.iloc[0].get("snapshot_date")
+            meta_row = first_row(my_finish)
+            finish_snap = None if meta_row is None else meta_row.get(
+                "snapshot_date"
+            )
+            if snapshot_is_stale(finish_snap, overview_snap):
+                st.warning(
+                    f"Projected-finish snapshot `{finish_snap}` is older than "
+                    f"current standings `{overview_snap}`. Treat ranks as "
+                    "stale until the #188 marts rebuild."
+                )
+
+            with st.container(border=True):
+                for line in assumptions_lines(meta_row):
+                    st.caption(line)
+                if streaming_applicable(my_finish) is False:
+                    st.info(
+                        "Draft-and-hold (NFBC 50): streaming is not "
+                        "applicable, so the three scenario columns are the "
+                        "same frozen roster."
+                    )
+
+                scenarios = ordered_scenarios(my_finish)
+                if scenarios:
+                    scen_cols = st.columns(len(scenarios))
+                    for col, scen in zip(scen_cols, scenarios):
+                        srow = scenario_row(my_finish, scen)
+                        with col:
+                            st.markdown(f"**{scenario_label(scen)}**")
+                            st.metric(
+                                "Projected rank",
+                                rank_metric_value(srow),
+                                help=(
+                                    "Projected overall rank vs forecast "
+                                    "contest cutlines (range when low/high "
+                                    "differ). Not the Current standings rank."
+                                ),
+                            )
+                            st.metric(
+                                "Projected pts",
+                                points_metric_value(srow),
+                                help=(
+                                    "Sum of projected category points under "
+                                    "this roster-assumption scenario."
+                                ),
+                            )
+
+                if not my_cat.empty and scenarios:
+                    detail_scen = st.radio(
+                        "Category detail",
+                        options=scenarios,
+                        format_func=scenario_label,
+                        horizontal=True,
+                        key=f"finish_detail_{league_key}",
+                        help=(
+                            "Category table for one scenario. Remain core / "
+                            "repl. apply to counting stats only."
+                        ),
+                    )
+                    detail = category_detail_frame(my_cat, detail_scen)
+                    if detail.empty:
+                        st.info(
+                            "No category rows for that scenario in "
+                            "`mart_projected_overall_finish_category`."
+                        )
+                    else:
+                        st.dataframe(
+                            detail,
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+                st.caption(FAAB_WORKSHEET_NOTE)
+                with st.expander("How projected finish differs from standings"):
+                    st.markdown(
+                        "- **Current standings** above is the NFBC overview "
+                        "feed (official rank / points).\n"
+                        "- **Category mobility** is raw-stat distance to "
+                        "points islands — not a season forecast.\n"
+                        "- **Projected finish** scores this team's remaining "
+                        "core + replacement volume against forecast field "
+                        "cutlines (`output_kind` = projected overall finish).\n"
+                        "- Counting categories annualize current pace; "
+                        "AVG / ERA / WHIP keep the current rate.\n"
+                        "- FAAB bid what-if is on the **FAAB Worksheet** tab, "
+                        "not here."
+                    )
 
     # ------------------------------------------------------------------
     # §3 Weekly Plan (from #186) — maintain / stretch vs expected lineup
