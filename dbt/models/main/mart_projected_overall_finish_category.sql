@@ -913,7 +913,7 @@ other_current as (
         ol.is_ratio,
         ol.raw_stat,
         p.season_completion,
-        p.current_weight,
+        p.season_completion as current_weight,
         case
             when ol.is_ratio then ol.raw_stat
             else ol.raw_stat / nullif(p.season_completion, 0.0)
