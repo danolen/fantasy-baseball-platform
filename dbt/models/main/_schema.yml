@@ -242,10 +242,11 @@ models:
 
   - name: mart_fa_replacement_curve
     description: >-
-      Available weekly $ by free-agent rank within each league, median
-      across leagues per format (#185). Replacement production for #188 is
-      read off this curve through the rank windows in the
-      ros_core_assumptions seed. Grain is one row per
+      Available weekly $ and counting stats by free-agent rank within each
+      league (#185 / #188). Dollars are the median across leagues; counting
+      stats are means so H/AB and ER/IP stay a coherent rate profile.
+      Replacement production for projected finish is the mean of this curve
+      over the rank windows in ros_core_assumptions. Grain is one row per
       (format, row_type, fa_rank).
     columns:
       - name: format
@@ -257,6 +258,13 @@ models:
       - name: fa_rank
         data_tests:
           - not_null
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - format
+              - row_type
+              - fa_rank
 
   - name: mart_sgp_percentiles
     description: One row per (_filename, category).
@@ -570,3 +578,90 @@ models:
               - projection_as_of
               - nfbc_id
               - stat
+
+  - name: mart_projected_overall_finish_category
+    description: >-
+      Projected overall-finish category grain (#188). One row per configured
+      Nolen OC / 50s team, scenario (stable / balanced / aggressive), latest
+      snapshot, and scoring category. Remaining counting stats are retained-core
+      ROS for players expected to start plus FA-window replacement for churn
+      slots. AVG/ERA/WHIP are recomputed from combined numerators/denominators.
+      Category points come from inserting that projected-final into a blended
+      contest field (annualized current counting stats, un-annualized ratios,
+      mixed with the 2025 percentile curve). This is a projected finish, not
+      projected standings for every contest team. 50s rows are frozen-roster
+      (streaming_applicable false; all three scenarios identical).
+    columns:
+      - name: league
+        data_tests:
+          - not_null
+      - name: snapshot_date
+        data_tests:
+          - not_null
+      - name: team_key
+        data_tests:
+          - not_null
+      - name: scenario
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['stable', 'balanced', 'aggressive']
+      - name: category
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['R', 'HR', 'RBI', 'SB', 'AVG', 'K', 'W', 'SV', 'ERA', 'WHIP']
+      - name: output_kind
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['projected overall finish']
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - league
+              - snapshot_date
+              - team_key
+              - scenario
+              - category
+
+  - name: mart_projected_overall_finish
+    description: >-
+      Projected overall finish (#188). One row per configured overall team,
+      scenario, and snapshot. Rolls up mart_projected_overall_finish_category
+      to overall points, rank, and a hist-vs-current rank range. Label is
+      `projected overall finish`.
+    columns:
+      - name: league
+        data_tests:
+          - not_null
+      - name: snapshot_date
+        data_tests:
+          - not_null
+      - name: team_key
+        data_tests:
+          - not_null
+      - name: scenario
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['stable', 'balanced', 'aggressive']
+      - name: output_kind
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['projected overall finish']
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              - league
+              - snapshot_date
+              - team_key
+              - scenario
