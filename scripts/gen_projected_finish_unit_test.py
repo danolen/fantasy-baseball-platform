@@ -243,6 +243,111 @@ unit_tests:
 '''
 
 
+REFS = [
+    "league_config",
+    "season_scoring_calendar",
+    "league_roster_slots",
+    "ros_core_assumptions",
+    "ros_player_overrides",
+    "mart_rest_of_season_overall_rankings_oc",
+    "mart_rest_of_season_overall_rankings_50s",
+    "mart_weekly_lineup_inputs",
+    "mart_fa_replacement_curve",
+    "src_nfbc_standings",
+    "stg_nfbc_overall_category_long",
+]
+
+
+def given_sqls() -> dict[str, str]:
+    return {
+        "league_config": (
+            "select 'nolen_oc' as league, 'oc' as format, "
+            "890 as nfbc_overall_game_type_id, 1828 as nfbc_league_id"
+        ),
+        "season_scoring_calendar": (
+            "select 2026 as season_year, 3 as scoring_periods, "
+            "date '2026-03-27' as season_start_date"
+        ),
+        "league_roster_slots": (
+            "select 'oc' as format, 'UTIL' as slot, 'hitter' as slot_group, "
+            '2 as "count" union all select \'oc\', \'P\', \'pitcher\', 1'
+        ),
+        "ros_core_assumptions": (
+            "select 'v1' as assumption_set, 'oc' as format, 'hitter' as player_type, "
+            "'ALL' as pos_group, cast(3.0 as double) as core_threshold_ros, "
+            "0 as stable_stream_hitters, 1 as stable_stream_pitchers, "
+            "1 as balanced_stream_hitters, 1 as balanced_stream_pitchers, "
+            "2 as aggressive_stream_hitters, 2 as aggressive_stream_pitchers, "
+            "'1-1' as replacement_window_aggressive, "
+            "'1-1' as replacement_window_base, "
+            "'1-1' as replacement_window_conservative "
+            "union all select 'v1', 'oc', 'hitter', 'C', cast(5.0 as double), "
+            "0, 1, 1, 1, 2, 2, '1-1', '1-1', '1-1' "
+            "union all select 'v1', 'oc', 'pitcher', 'ALL', cast(3.0 as double), "
+            "0, 1, 1, 1, 2, 2, '1-1', '1-1', '1-1'"
+        ),
+        "ros_player_overrides": (
+            "select cast(null as varchar) as assumption_set, "
+            "cast(null as varchar) as nfbc_id, "
+            "cast(null as varchar) as force_status where 1=0"
+        ),
+        "mart_rest_of_season_overall_rankings_oc": (
+            "select 101 as id, 'OF' as pos_group, cast(10.0 as double) as value, "
+            "cast(20.0 as double) as r, cast(0.0 as double) as hr, "
+            "cast(0.0 as double) as rbi, cast(0.0 as double) as sb, "
+            "cast(10.0 as double) as h, cast(40.0 as double) as ab, "
+            "cast(null as double) as k, cast(null as double) as w, "
+            "cast(null as double) as sv, cast(null as double) as er, "
+            "cast(null as double) as ip, cast(null as double) as bb "
+            "union all select 102, 'OF', cast(8.0 as double), cast(8.0 as double), "
+            "0, 0, 0, cast(4.0 as double), cast(16.0 as double), "
+            "null, null, null, null, null, null"
+        ),
+        "mart_rest_of_season_overall_rankings_50s": (
+            "select cast(null as integer) as id, cast(null as varchar) as pos_group, "
+            "cast(null as double) as value, cast(null as double) as r, "
+            "cast(null as double) as hr, cast(null as double) as rbi, "
+            "cast(null as double) as sb, cast(null as double) as h, "
+            "cast(null as double) as ab, cast(null as double) as k, "
+            "cast(null as double) as w, cast(null as double) as sv, "
+            "cast(null as double) as er, cast(null as double) as ip, "
+            "cast(null as double) as bb where 1=0"
+        ),
+        "mart_weekly_lineup_inputs": (
+            "select 'nolen_oc' as league, 'oc' as format, 'Dan Nolen' as owner, "
+            "'101' as nfbc_id, 'hitter' as row_type, 0 as is_c_eligible, "
+            "'2026-04-06' as week_of, cast(10.0 as double) as ros_value "
+            "union all select 'nolen_oc', 'oc', 'Dan Nolen', '102', 'hitter', 0, "
+            "'2026-04-06', cast(8.0 as double) "
+            "union all select 'nolen_oc', 'oc', 'Dan Nolen', '201', 'pitcher', 0, "
+            "'2026-04-06', cast(1.0 as double)"
+        ),
+        "mart_fa_replacement_curve": (
+            "select 'oc' as format, 'hitter' as row_type, 1 as fa_rank, "
+            "cast(3.0 as double) as mean_weekly_r, cast(0.0 as double) as mean_weekly_hr, "
+            "cast(0.0 as double) as mean_weekly_rbi, cast(0.0 as double) as mean_weekly_sb, "
+            "cast(1.0 as double) as mean_weekly_h, cast(4.0 as double) as mean_weekly_ab, "
+            "cast(null as double) as mean_weekly_k, cast(null as double) as mean_weekly_w, "
+            "cast(null as double) as mean_weekly_sv, cast(null as double) as mean_weekly_er, "
+            "cast(null as double) as mean_weekly_ip, cast(null as double) as mean_weekly_ha, "
+            "cast(null as double) as mean_weekly_bb "
+            "union all select 'oc', 'pitcher', 1, null, null, null, null, null, null, "
+            "cast(0.0 as double), cast(0.0 as double), cast(0.0 as double), "
+            "cast(0.0 as double), cast(0.0 as double), cast(0.0 as double), "
+            "cast(0.0 as double)"
+        ),
+        "src_nfbc_standings": (
+            "select 'skip.csv' as _filename, cast(1.0 as double) as r, "
+            "cast(1.0 as double) as hr, cast(1.0 as double) as rbi, "
+            "cast(1.0 as double) as sb, cast(0.25 as double) as avg, "
+            "cast(1.0 as double) as k, cast(1.0 as double) as w, "
+            "cast(1.0 as double) as s, cast(3.0 as double) as era, "
+            "cast(1.0 as double) as whip"
+        ),
+        "stg_nfbc_overall_category_long": overall_sql(),
+    }
+
+
 def write_yaml(path: str) -> None:
     text = HEADER.format(overall=overall_sql())
     text += "\n".join(fmt_row(row) for row in EXPECT) + "\n"
