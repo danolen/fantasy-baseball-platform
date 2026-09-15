@@ -130,9 +130,10 @@ def empty_fallback_message(
 ) -> str:
     """User-facing copy when the #188 mart is missing, empty, or unmatched."""
     if load_error is not None:
+        err = str(load_error).rstrip(".")
         return (
             "Projected finish could not load (`mart_projected_overall_finish`). "
-            f"{load_error} Rebuild the #188 marts, then refresh. Current "
+            f"{err}. Rebuild the #188 marts, then refresh. Current "
             "standings and mobility above are unchanged."
         )
     if no_team_match:
