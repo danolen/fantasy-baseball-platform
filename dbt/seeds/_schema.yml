@@ -40,6 +40,16 @@ seeds:
       consumed by #188): force_status core keeps a player's full ROS line,
       stream drops them to replacement. Lets the maintainer overrule the
       assumptions seed per player without changing SQL. Empty until needed.
+    config:
+      # Header-only CSV: Athena/agate infers every column as INT, then
+      # accepted_values emits varchar literals ('core' / 'stream') and
+      # Athena TYPE_MISMATCH on IN (integer vs varchar). Force strings.
+      column_types:
+        assumption_set: varchar
+        nfbc_id: varchar
+        player_name: varchar
+        force_status: varchar
+        reason: varchar
     columns:
       - name: assumption_set
         data_tests:
