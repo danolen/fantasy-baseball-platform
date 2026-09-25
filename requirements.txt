@@ -3,5 +3,5 @@ boto3==1.43.92
 pandas==3.0.6
 pyathena==3.36.0
 python-dotenv==1.2.3
-plotly==7.0.0
+plotly==7.1.0
 numpy==2.5.3
