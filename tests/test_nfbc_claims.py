@@ -23,6 +23,7 @@ from nfbc_claims import (  # noqa: E402
     claims_page_url,
     claims_s3_uri,
     classify_claims_option,
+    date_partition_path,
     cookies_from_env,
     delete_local_claims_csv,
     is_safe_claims_csv_path,
@@ -218,16 +219,29 @@ def test_dropdown_index_keeps_only_me_and_oc():
     assert by_id == {1828: "online_championship", 1055: "main_event", 217: "online_championship"}
 
 
-def test_s3_uri_uses_format_subdir_and_league_filename():
+def test_s3_uri_uses_format_and_date_partition():
+    when = date(2026, 9, 27)
+    assert date_partition_path(when) == "year=2026/month=09/day=27"
     assert (
         claims_s3_uri(
-            "s3://dn-lakehouse-dev/nfbc/claims", "online_championship", 1828
+            "s3://dn-lakehouse-dev/nfbc/claims",
+            "online_championship",
+            1828,
+            when=when,
         )
-        == "s3://dn-lakehouse-dev/nfbc/claims/online_championship/claims_1828.csv"
+        == (
+            "s3://dn-lakehouse-dev/nfbc/claims/online_championship/"
+            "year=2026/month=09/day=27/claims_1828.csv"
+        )
     )
     assert (
-        claims_s3_uri("s3://dn-lakehouse-dev/nfbc/claims", "main_event", 1055)
-        == "s3://dn-lakehouse-dev/nfbc/claims/main_event/claims_1055.csv"
+        claims_s3_uri(
+            "s3://dn-lakehouse-dev/nfbc/claims", "main_event", 1055, when=when
+        )
+        == (
+            "s3://dn-lakehouse-dev/nfbc/claims/main_event/"
+            "year=2026/month=09/day=27/claims_1055.csv"
+        )
     )
 
 
@@ -282,9 +296,18 @@ def test_process_league_uploads_then_deletes_only_that_csv(tmp_path: Path):
         s3_base="s3://dn-lakehouse-dev/nfbc/claims",
         keep_local=False,
         s3_client=FakeS3(),
+        when=date(2026, 9, 27),
     )
-    assert uri == "s3://dn-lakehouse-dev/nfbc/claims/online_championship/claims_1828.csv"
-    assert puts == [("dn-lakehouse-dev", "nfbc/claims/online_championship/claims_1828.csv")]
+    assert uri == (
+        "s3://dn-lakehouse-dev/nfbc/claims/online_championship/"
+        "year=2026/month=09/day=27/claims_1828.csv"
+    )
+    assert puts == [
+        (
+            "dn-lakehouse-dev",
+            "nfbc/claims/online_championship/year=2026/month=09/day=27/claims_1828.csv",
+        )
+    ]
     assert not out.exists()
     assert neighbor.read_text(encoding="utf-8") == "leave me"
 
@@ -359,6 +382,10 @@ def test_all_loop_uploads_each_league_and_deletes_locals(tmp_path: Path, monkeyp
         "nfbc_claims.default_output_path",
         lambda league_id: tmp_path / f"claims_{league_id}.csv",
     )
+    monkeypatch.setattr(
+        "nfbc_claims.date_partition_path",
+        lambda when=None: "year=2026/month=09/day=27",
+    )
     monkeypatch.chdir(tmp_path)
     args = parse_args(
         [
@@ -373,9 +400,9 @@ def test_all_loop_uploads_each_league_and_deletes_locals(tmp_path: Path, monkeyp
     rc = run_all_leagues(args, s3_client=FakeS3())
     assert rc == 0
     assert puts == [
-        "nfbc/claims/online_championship/claims_1828.csv",
-        "nfbc/claims/main_event/claims_1055.csv",
-        "nfbc/claims/online_championship/claims_217.csv",
+        "nfbc/claims/online_championship/year=2026/month=09/day=27/claims_1828.csv",
+        "nfbc/claims/main_event/year=2026/month=09/day=27/claims_1055.csv",
+        "nfbc/claims/online_championship/year=2026/month=09/day=27/claims_217.csv",
     ]
     assert not (tmp_path / "claims_1828.csv").exists()
     assert not (tmp_path / "claims_1055.csv").exists()

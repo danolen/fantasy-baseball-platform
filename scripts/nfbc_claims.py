@@ -23,10 +23,14 @@ One league only (default 1828)::
 
 Local CSVs are named ``claims_{league_id}.csv``. After a successful S3
 put, that exact file is deleted. Other files are never touched. Use
-``--keep-local`` to skip the delete. S3 keys::
+``--keep-local`` to skip the delete. S3 keys use today's
+``America/New_York`` date partition::
 
-    s3://dn-lakehouse-dev/nfbc/claims/online_championship/claims_1828.csv
-    s3://dn-lakehouse-dev/nfbc/claims/main_event/claims_{league_id}.csv
+    s3://dn-lakehouse-dev/nfbc/claims/online_championship/year=2026/month=09/day=27/claims_1828.csv
+    s3://dn-lakehouse-dev/nfbc/claims/main_event/year=2026/month=09/day=27/claims_{league_id}.csv
+
+Already-uploaded unpartitioned objects can be moved with
+``scripts/nfbc_claims_repartition.py``.
 """
 
 from __future__ import annotations
@@ -38,8 +42,9 @@ import re
 import sys
 import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 PLAYER_HREF_RE = re.compile(r"/player/baseball/(\d+)/", re.I)
 WEEK_TITLE_RE = re.compile(
@@ -76,6 +81,7 @@ DEFAULT_CDP_URL = "http://127.0.0.1:9222"
 DEFAULT_S3_BASE = "s3://dn-lakehouse-dev/nfbc/claims"
 CLAIMS_CSV_NAME_RE = re.compile(r"^claims_(\d+)\.csv$")
 DEFAULT_PAUSE_SECONDS = 1.0
+PARTITION_TZ = ZoneInfo("America/New_York")
 
 
 class ClaimsParseError(ValueError):
@@ -397,18 +403,57 @@ def parse_s3_uri(s3_uri: str) -> tuple[str, str]:
     return parts[0], "/".join(parts[1:])
 
 
-def claims_s3_key(base_prefix: str, format: str, league_id: int) -> str:
+def date_partition_path(when: date | None = None) -> str:
+    """Hive-style ``year=/month=/day=`` folder used by other NFBC ingest prefixes."""
+    day = when or datetime.now(PARTITION_TZ).date()
+    return f"year={day.year}/month={day.month:02d}/day={day.day:02d}"
+
+
+def claims_s3_key(
+    base_prefix: str,
+    format: str,
+    league_id: int,
+    *,
+    when: date | None = None,
+) -> str:
     if format not in FORMAT_CHOICES:
         raise ClaimsUploadError(f"Invalid claims format {format!r}")
     filename = f"claims_{league_id}.csv"
     folder = f"{base_prefix}/{format}" if base_prefix else format
-    return f"{folder}/{filename}"
+    return f"{folder}/{date_partition_path(when)}/{filename}"
 
 
-def claims_s3_uri(s3_base: str, format: str, league_id: int) -> str:
+def claims_s3_uri(
+    s3_base: str,
+    format: str,
+    league_id: int,
+    *,
+    when: date | None = None,
+) -> str:
     bucket, prefix = parse_s3_uri(s3_base)
-    key = claims_s3_key(prefix, format, league_id)
+    key = claims_s3_key(prefix, format, league_id, when=when)
     return f"s3://{bucket}/{key}"
+
+
+def is_unpartitioned_claims_key(key: str, base_prefix: str) -> bool:
+    """True for ``{prefix}/{format}/claims_{id}.csv`` with no date partition."""
+    expected = f"{base_prefix}/" if base_prefix else ""
+    if expected and not key.startswith(expected):
+        return False
+    rest = key[len(expected) :]
+    parts = rest.split("/")
+    if len(parts) != 2:
+        return False
+    fmt, name = parts
+    return fmt in FORMAT_CHOICES and CLAIMS_CSV_NAME_RE.fullmatch(name) is not None
+
+
+def partitioned_claims_dest_key(source_key: str, *, when: date | None = None) -> str:
+    """Keep the format folder; insert today's partition before the filename."""
+    if "/" not in source_key:
+        raise ClaimsUploadError(f"Cannot partition key with no folder: {source_key}")
+    parent, name = source_key.rsplit("/", 1)
+    return f"{parent}/{date_partition_path(when)}/{name}"
 
 
 def upload_claims_csv(
@@ -418,12 +463,13 @@ def upload_claims_csv(
     format: str,
     league_id: int,
     s3_client=None,
+    when: date | None = None,
 ) -> str:
     """Put one local claims CSV to S3. Does not delete anything."""
     if not path.is_file() or path.is_symlink():
         raise ClaimsUploadError(f"Refusing to upload missing or symlink path: {path}")
     bucket, prefix = parse_s3_uri(s3_base)
-    key = claims_s3_key(prefix, format, league_id)
+    key = claims_s3_key(prefix, format, league_id, when=when)
     body = path.read_bytes()
     if not body:
         raise ClaimsUploadError(f"Refusing to upload empty file: {path}")
@@ -709,7 +755,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help=(
             "Upload each claims CSV to S3, then delete that local CSV. "
-            f"Default prefix: {DEFAULT_S3_BASE}/{{format}}/claims_{{id}}.csv"
+            f"Default prefix: {DEFAULT_S3_BASE}/{{format}}/"
+            "year=/month=/day=/claims_{id}.csv"
         ),
     )
     parser.add_argument(
@@ -764,6 +811,7 @@ def process_league(
     s3_base: str,
     keep_local: bool,
     s3_client=None,
+    when: date | None = None,
 ) -> str | None:
     """Parse one league, write CSV, optionally upload to S3 and delete local."""
     rows = parse_claims_html(
@@ -786,6 +834,7 @@ def process_league(
         format=league.format,
         league_id=league.league_id,
         s3_client=s3_client,
+        when=when,
     )
     print(f"Uploaded {uri}")
     if keep_local:
