@@ -17,6 +17,7 @@ if str(SCRIPTS) not in sys.path:
 from nfbc_claims import (  # noqa: E402
     ClaimsFetchError,
     ClaimsParseError,
+    chrome_debug_command,
     claims_page_url,
     cookies_from_env,
     load_claims_html,
@@ -26,6 +27,7 @@ from nfbc_claims import (  # noqa: E402
     parse_week_title,
     playwright_cookie_list,
     write_claims_csv,
+    _cloudflare_help,
     _page_looks_challenged,
 )
 
@@ -161,3 +163,32 @@ def test_missing_html_file_is_a_fetch_error():
     args = parse_args(["--html", "/no/such/claims.html"])
     with pytest.raises(ClaimsFetchError, match="not found"):
         load_claims_html(args)
+
+
+def test_connect_cdp_flag_is_passed_through(monkeypatch):
+    html = FIXTURE.read_text(encoding="utf-8")
+    seen: dict = {}
+
+    def fake_fetch(league_id, **kwargs):
+        seen.update(kwargs)
+        seen["league_id"] = league_id
+        return html
+
+    monkeypatch.setattr("nfbc_claims.fetch_claims_html_with_browser", fake_fetch)
+    args = parse_args(
+        ["--connect-cdp", "http://127.0.0.1:9222", "--channel", "chrome"]
+    )
+    assert args.connect_cdp == "http://127.0.0.1:9222"
+    assert args.channel == "chrome"
+    load_claims_html(args)
+    assert seen["connect_cdp"] == "http://127.0.0.1:9222"
+    assert seen["channel"] == "chrome"
+    assert seen["cookies"] is None
+
+
+def test_cloudflare_help_points_at_connect_cdp():
+    cmd = chrome_debug_command()
+    assert "--remote-debugging-port=9222" in cmd
+    help_text = _cloudflare_help(profile=Path("/tmp/profile"))
+    assert "--connect-cdp" in help_text
+    assert cmd.split()[0] in help_text or "Chrome" in help_text
