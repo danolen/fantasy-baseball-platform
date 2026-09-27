@@ -8,11 +8,21 @@ operator script you run on your machine. No Prefect, no S3 in this iteration.
 This chunk covers one Online Championship league (default ``1828``, Nolen OC).
 The all-league loop and S3 upload come later.
 
-Default: open a local Chromium window, wait until you are logged in, then
-parse the claims tables. A persistent profile keeps the session for the
-next run.
+Default: attach to a Chrome window you already started, or launch installed
+Google Chrome (not Playwright's bundled Chromium). Playwright Chromium is
+what Cloudflare's "click this box if you are a human" loop detects.
 
-    python scripts/nfbc_claims.py
+Recommended when the checkbox keeps coming back — start Chrome yourself,
+log in there, then attach:
+
+    # quit Chrome first, then:
+    /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\
+      --remote-debugging-port=9222 \\
+      --user-data-dir="$HOME/.cache/nfbc-claims-chrome"
+
+    # in that window, log in at nfc.shgn.com, then:
+    python scripts/nfbc_claims.py --connect-cdp http://127.0.0.1:9222
+
     python scripts/nfbc_claims.py --html ./claims_1828.html
 
 Writes ``claims_1828.csv`` in the current directory.
@@ -21,14 +31,7 @@ Optional login shortcuts (values only, never printed):
     export NFBC_LIU='…'    # nfc.shgn.com ``liu`` cookie
     export NFBC_JWT='…'    # optional ``jwt`` cookie
 
-First browser run
------------------
-1. ``pip install -r requirements-dev.txt && playwright install chromium``
-2. ``python scripts/nfbc_claims.py``
-3. Log in in the Chromium window if prompted. The script waits for
-   ``table.claims``.
-4. Do not commit saved HTML or the profile directory — both can hold
-   session tokens.
+These cookies do not skip Cloudflare. Prefer ``--connect-cdp``.
 
 Later S3 layout (not implemented here)::
 
@@ -74,8 +77,11 @@ DEFAULT_SEASON = 2026
 FORMAT_CHOICES = ("online_championship", "main_event")
 CLAIMS_PAGE_URL = "https://nfc.shgn.com/claims?league_id={league_id}"
 COOKIE_DOMAIN = "nfc.shgn.com"
-DEFAULT_BROWSER_TIMEOUT_SECONDS = 180
+DEFAULT_BROWSER_TIMEOUT_SECONDS = 300
 DEFAULT_USER_DATA_DIR = Path.home() / ".cache" / "nfbc-claims-browser"
+DEFAULT_BROWSER_CHANNEL = "chrome"
+BROWSER_CHANNEL_CHOICES = ("chrome", "chromium")
+DEFAULT_CDP_URL = "http://127.0.0.1:9222"
 
 
 class ClaimsParseError(ValueError):
@@ -132,6 +138,21 @@ def _require_playwright():
 
 def claims_page_url(league_id: int) -> str:
     return CLAIMS_PAGE_URL.format(league_id=league_id)
+
+
+def chrome_debug_command(*, user_data_dir: Path | None = None) -> str:
+    """Shell command to start a debug Chrome the script can attach to."""
+    profile = user_data_dir or (Path.home() / ".cache" / "nfbc-claims-chrome")
+    if sys.platform == "darwin":
+        binary = '"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"'
+    elif sys.platform.startswith("win"):
+        binary = '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"'
+    else:
+        binary = "google-chrome"
+    return (
+        f"{binary} --remote-debugging-port=9222 "
+        f'--user-data-dir="{profile}"'
+    )
 
 
 def cookies_from_env(
@@ -333,6 +354,17 @@ def _page_looks_challenged(html: str, title: str | None) -> bool:
     )
 
 
+def _cloudflare_help(*, profile: Path) -> str:
+    return (
+        "Cloudflare is treating this as an automated browser (the checkbox "
+        "loops). Playwright's bundled Chromium is the usual cause. Quit "
+        "Chrome, start a debug Chrome, log in there, then attach:\n"
+        f"  {chrome_debug_command()}\n"
+        f"  python scripts/nfbc_claims.py --connect-cdp {DEFAULT_CDP_URL}\n"
+        f"Launched-browser profile was {profile}."
+    )
+
+
 def fetch_claims_html_with_browser(
     league_id: int,
     *,
@@ -340,36 +372,70 @@ def fetch_claims_html_with_browser(
     user_data_dir: Path | None = None,
     timeout_seconds: int = DEFAULT_BROWSER_TIMEOUT_SECONDS,
     cookies: NfbcBrowserCookies | None = None,
+    channel: str = DEFAULT_BROWSER_CHANNEL,
+    connect_cdp: str | None = None,
 ) -> str:
-    """Open ``/claims?league_id=…`` in Chromium and return the page HTML."""
+    """Open ``/claims?league_id=…`` and return the page HTML."""
     sync_playwright, PlaywrightTimeout = _require_playwright()
     url = claims_page_url(league_id)
     profile = user_data_dir or DEFAULT_USER_DATA_DIR
-    profile.mkdir(parents=True, exist_ok=True)
     timeout_ms = timeout_seconds * 1000
 
-    if headed:
+    if connect_cdp:
         print(
-            f"Opening {url} in Chromium. Log in if prompted; waiting up to "
-            f"{timeout_seconds}s for table.claims …",
+            f"Attaching to Chrome at {connect_cdp} and opening {url}. "
+            f"Waiting up to {timeout_seconds}s for table.claims …",
+            file=sys.stderr,
+        )
+    elif headed:
+        print(
+            f"Opening {url} in {channel}. If the Cloudflare box loops, "
+            f"use --connect-cdp. Waiting up to {timeout_seconds}s …",
             file=sys.stderr,
         )
 
-    launch_args: list[str] = []
+    launch_args = ["--disable-blink-features=AutomationControlled"]
     if sys.platform.startswith("linux"):
         launch_args.extend(["--no-sandbox", "--disable-dev-shm-usage"])
 
     with sync_playwright() as playwright:
-        context = playwright.chromium.launch_persistent_context(
-            str(profile),
-            headless=not headed,
-            args=launch_args,
-            viewport={"width": 1400, "height": 900},
-        )
+        owns_context = False
+        page = None
         try:
-            if cookies is not None:
-                context.add_cookies(playwright_cookie_list(cookies))
-            page = context.pages[0] if context.pages else context.new_page()
+            if connect_cdp:
+                browser = playwright.chromium.connect_over_cdp(connect_cdp)
+                context = (
+                    browser.contexts[0] if browser.contexts else browser.new_context()
+                )
+                page = context.new_page()
+            else:
+                profile.mkdir(parents=True, exist_ok=True)
+                launch_kwargs: dict = {
+                    "headless": not headed,
+                    "args": launch_args,
+                    "viewport": {"width": 1400, "height": 900},
+                    "ignore_default_args": ["--enable-automation"],
+                }
+                if channel == "chrome":
+                    launch_kwargs["channel"] = "chrome"
+                try:
+                    context = playwright.chromium.launch_persistent_context(
+                        str(profile),
+                        **launch_kwargs,
+                    )
+                except Exception as exc:
+                    raise ClaimsFetchError(
+                        f"Could not launch {channel}. Install Google Chrome "
+                        "or pass --channel chromium. If Cloudflare loops, "
+                        f"attach instead:\n  {chrome_debug_command()}\n"
+                        f"  python scripts/nfbc_claims.py --connect-cdp "
+                        f"{DEFAULT_CDP_URL}\n({exc})"
+                    ) from exc
+                owns_context = True
+                if cookies is not None:
+                    context.add_cookies(playwright_cookie_list(cookies))
+                page = context.pages[0] if context.pages else context.new_page()
+
             page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
             try:
                 page.wait_for_selector(CLAIMS_TABLE_SELECTOR, timeout=timeout_ms)
@@ -377,31 +443,31 @@ def fetch_claims_html_with_browser(
                 html = page.content()
                 title = page.title()
                 if _page_looks_challenged(html, title):
-                    raise ClaimsFetchError(
-                        "Cloudflare still challenged this Chromium session. "
-                        "Re-run headed on your machine, complete the check, "
-                        f"and keep the profile at {profile}."
-                    ) from exc
+                    raise ClaimsFetchError(_cloudflare_help(profile=profile)) from exc
                 raise ClaimsFetchError(
-                    "Claims tables did not appear. Log in at nfc.shgn.com in "
-                    f"the Chromium window (profile {profile}) and re-run."
+                    "Claims tables did not appear. Log in at nfc.shgn.com, "
+                    f"or attach to an already-logged-in Chrome with "
+                    f"--connect-cdp {DEFAULT_CDP_URL}."
                 ) from exc
             return page.content()
         finally:
-            context.close()
+            if page is not None and connect_cdp:
+                page.close()
+            if owns_context:
+                context.close()
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Capture one NFBC claims league to a local CSV. "
-            "Default: open Chromium for Nolen OC (1828)."
+            "Default: open installed Chrome for Nolen OC (1828)."
         )
     )
     parser.add_argument(
         "--html",
         default=None,
-        help="Parse a browser-saved claims page instead of opening Chromium.",
+        help="Parse a browser-saved claims page instead of opening a browser.",
     )
     parser.add_argument(
         "--league-id",
@@ -430,14 +496,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--headed",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Show Chromium so you can log in (default: headed).",
+        help="Show the browser so you can log in (default: headed).",
+    )
+    parser.add_argument(
+        "--channel",
+        choices=BROWSER_CHANNEL_CHOICES,
+        default=DEFAULT_BROWSER_CHANNEL,
+        help="Browser to launch when not using --connect-cdp (default: chrome).",
+    )
+    parser.add_argument(
+        "--connect-cdp",
+        default=None,
+        metavar="URL",
+        help=(
+            "Attach to a Chrome you started with --remote-debugging-port "
+            f"(example: {DEFAULT_CDP_URL}). Use this if the Cloudflare "
+            "checkbox loops."
+        ),
     )
     parser.add_argument(
         "--user-data-dir",
         default=None,
         help=(
-            "Persistent Chromium profile (default: "
-            f"{DEFAULT_USER_DATA_DIR})."
+            "Persistent launched-browser profile (default: "
+            f"{DEFAULT_USER_DATA_DIR}). Ignored with --connect-cdp."
         ),
     )
     parser.add_argument(
@@ -464,7 +546,9 @@ def load_claims_html(args: argparse.Namespace) -> str:
         headed=args.headed,
         user_data_dir=user_data_dir,
         timeout_seconds=args.timeout_seconds,
-        cookies=cookies_from_env(),
+        cookies=None if args.connect_cdp else cookies_from_env(),
+        channel=args.channel,
+        connect_cdp=args.connect_cdp,
     )
 
 

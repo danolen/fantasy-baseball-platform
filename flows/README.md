@@ -236,9 +236,17 @@ Managed and residential Macs — Cloudflare blocks non-browser clients on that
 path. Overall standings and players are unaffected. The
 `nfbc-in-season-managed` deployment sets `include_league_standings: false`.
 NFBC `/claims` is the same class of block for `requests` (#298). Do not add a
-Prefect claims flow. End-of-season capture is a local Chromium script:
-`python scripts/nfbc_claims.py` (default league 1828). Use `--html` only if
-you already saved the page. `playwright install chromium` is required.
+Prefect claims flow. End-of-season capture is a local Chrome script. If the
+Cloudflare checkbox loops, attach to a debug Chrome you started yourself:
+
+```bash
+# quit Chrome first
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/.cache/nfbc-claims-chrome"
+# log in at nfc.shgn.com in that window, then:
+python scripts/nfbc_claims.py --connect-cdp http://127.0.0.1:9222
+```
 
 **Refresh league standings from browser HTML (supported path):**
 
