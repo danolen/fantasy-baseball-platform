@@ -249,9 +249,23 @@ python scripts/nfbc_claims.py --connect-cdp http://127.0.0.1:9222 --all --s3
 ```
 
 That writes each `claims_{league_id}.csv` locally, uploads to
-`s3://dn-lakehouse-dev/nfbc/claims/{online_championship|main_event}/`, then
-deletes only that CSV. `--keep-local` skips the delete. Qualifier leagues are
-skipped. The IAM principal needs `s3:PutObject` on `nfbc/claims/*`.
+`s3://dn-lakehouse-dev/nfbc/claims/{online_championship|main_event}/year=/month=/day=/`,
+then deletes only that CSV. `--keep-local` skips the delete. Qualifier leagues
+are skipped. Date partitions use `America/New_York`. The IAM principal needs
+`s3:PutObject` on `nfbc/claims/*`.
+
+If objects were already uploaded without a date partition, move them in place:
+
+```bash
+python scripts/nfbc_claims_repartition.py --dry-run
+python scripts/nfbc_claims_repartition.py
+```
+
+That copies only `{format}/claims_{id}.csv` to `{format}/year=/month=/day=/`
+and deletes the unpartitioned source after a successful copy. Already-partitioned
+keys, other filenames, and other prefixes are left alone. The IAM principal
+needs `s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject`
+on `nfbc/claims/*`.
 
 **Refresh league standings from browser HTML (supported path):**
 
