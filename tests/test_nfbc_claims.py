@@ -15,11 +15,18 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from nfbc_claims import (  # noqa: E402
+    ClaimsFetchError,
     ClaimsParseError,
+    claims_page_url,
+    cookies_from_env,
+    load_claims_html,
     main,
+    parse_args,
     parse_claims_html,
     parse_week_title,
+    playwright_cookie_list,
     write_claims_csv,
+    _page_looks_challenged,
 )
 
 FIXTURE = ROOT / "tests" / "fixtures" / "nfbc_claims_sample.html"
@@ -106,3 +113,51 @@ def test_write_csv_and_cli(tmp_path: Path):
     assert rc == 0
     assert cli_out.is_file()
     assert "Michael Soroka" in cli_out.read_text(encoding="utf-8")
+
+
+def test_claims_page_url_is_league_scoped():
+    assert claims_page_url(1828) == "https://nfc.shgn.com/claims?league_id=1828"
+
+
+def test_cookies_from_env_are_optional_and_normalized():
+    assert cookies_from_env({}) is None
+    auth = cookies_from_env({"NFBC_LIU": "liu=abc", "NFBC_JWT": "jwt=def"})
+    assert auth is not None
+    assert auth.liu == "abc"
+    assert auth.jwt == "def"
+    names = {cookie["name"] for cookie in playwright_cookie_list(auth)}
+    assert names == {"liu", "jwt"}
+    assert all(cookie["domain"] == "nfc.shgn.com" for cookie in playwright_cookie_list(auth))
+
+
+def test_cloudflare_html_is_detected():
+    assert _page_looks_challenged("<html>__cf_chl</html>", None)
+    assert _page_looks_challenged("<html></html>", "Just a moment...")
+    assert not _page_looks_challenged("<table class='claims'></table>", "FAAB Results")
+
+
+def test_load_claims_html_reads_saved_file():
+    args = parse_args(["--html", str(FIXTURE), "--league-id", "1828"])
+    html = load_claims_html(args)
+    assert "FAAB Winning Bids" in html
+
+
+def test_browser_cli_uses_fetch_hook(tmp_path: Path, monkeypatch):
+    html = FIXTURE.read_text(encoding="utf-8")
+
+    def fake_fetch(league_id, **kwargs):
+        assert league_id == 1828
+        assert kwargs["headed"] is True
+        return html
+
+    monkeypatch.setattr("nfbc_claims.fetch_claims_html_with_browser", fake_fetch)
+    out = tmp_path / "claims_1828.csv"
+    rc = main(["--output", str(out)])
+    assert rc == 0
+    assert "Michael Soroka" in out.read_text(encoding="utf-8")
+
+
+def test_missing_html_file_is_a_fetch_error():
+    args = parse_args(["--html", "/no/such/claims.html"])
+    with pytest.raises(ClaimsFetchError, match="not found"):
+        load_claims_html(args)

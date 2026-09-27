@@ -235,9 +235,10 @@ values from DevTools are safest.
 Managed and residential Macs — Cloudflare blocks non-browser clients on that
 path. Overall standings and players are unaffected. The
 `nfbc-in-season-managed` deployment sets `include_league_standings: false`.
-NFBC `/claims` is the same class of block (#298). Do not add a Prefect claims
-flow. End-of-season capture is a local HTML parse:
-`python scripts/nfbc_claims.py --html ./claims_1828.html`.
+NFBC `/claims` is the same class of block for `requests` (#298). Do not add a
+Prefect claims flow. End-of-season capture is a local Chromium script:
+`python scripts/nfbc_claims.py` (default league 1828). Use `--html` only if
+you already saved the page. `playwright install chromium` is required.
 
 **Refresh league standings from browser HTML (supported path):**
 

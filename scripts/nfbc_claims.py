@@ -1,27 +1,34 @@
 #!/usr/bin/env python3
-"""Parse a browser-saved NFBC claims page into a local CSV (#298).
+"""Capture one NFBC claims league to a local CSV (#298).
 
-NFBC ``/claims`` is blocked by Cloudflare for scripted clients (same as
-league ``standings.data.php``). This is a one-time, end-of-season operator
-script: save the claims page from a logged-in browser, then parse it here.
-No Prefect, no cookies, no S3 in this iteration.
+NFBC ``/claims`` is blocked by Cloudflare for ``requests``-style clients
+(same as league ``standings.data.php``). This is a one-time, end-of-season
+operator script you run on your machine. No Prefect, no S3 in this iteration.
 
 This chunk covers one Online Championship league (default ``1828``, Nolen OC).
-S3 upload and the full ME/OC league loop come later.
+The all-league loop and S3 upload come later.
 
-Save the page
--------------
-1. Log in at https://nfc.shgn.com/claims?league_id=1828
-2. File → Save Page As… (complete HTML), or DevTools → the document
-   response, as ``claims_1828.html``.
-3. Do not commit the HTML — the saved page can include session tokens.
+Default: open a local Chromium window, wait until you are logged in, then
+parse the claims tables. A persistent profile keeps the session for the
+next run.
 
-Run
----
+    python scripts/nfbc_claims.py
     python scripts/nfbc_claims.py --html ./claims_1828.html
 
-Writes ``claims_1828.csv`` in the current directory. Override with
-``--output`` / ``--league-id`` / ``--format``.
+Writes ``claims_1828.csv`` in the current directory.
+
+Optional login shortcuts (values only, never printed):
+    export NFBC_LIU='…'    # nfc.shgn.com ``liu`` cookie
+    export NFBC_JWT='…'    # optional ``jwt`` cookie
+
+First browser run
+-----------------
+1. ``pip install -r requirements-dev.txt && playwright install chromium``
+2. ``python scripts/nfbc_claims.py``
+3. Log in in the Chromium window if prompted. The script waits for
+   ``table.claims``.
+4. Do not commit saved HTML or the profile directory — both can hold
+   session tokens.
 
 Later S3 layout (not implemented here)::
 
@@ -33,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -45,6 +53,7 @@ WEEK_TITLE_RE = re.compile(
     re.I,
 )
 CLAIMS_TABLE_CLASS = "claims"
+CLAIMS_TABLE_SELECTOR = "table.claims"
 EXPECTED_HEADERS = ("Team", "Add", "Drop", "Bid", "Runner-Up")
 CSV_COLUMNS = (
     "league_id",
@@ -63,10 +72,18 @@ DEFAULT_LEAGUE_ID = 1828
 DEFAULT_FORMAT = "online_championship"
 DEFAULT_SEASON = 2026
 FORMAT_CHOICES = ("online_championship", "main_event")
+CLAIMS_PAGE_URL = "https://nfc.shgn.com/claims?league_id={league_id}"
+COOKIE_DOMAIN = "nfc.shgn.com"
+DEFAULT_BROWSER_TIMEOUT_SECONDS = 180
+DEFAULT_USER_DATA_DIR = Path.home() / ".cache" / "nfbc-claims-browser"
 
 
 class ClaimsParseError(ValueError):
-    """The saved HTML is missing claims tables or has an unexpected layout."""
+    """The claims HTML is missing tables or has an unexpected layout."""
+
+
+class ClaimsFetchError(RuntimeError):
+    """The local browser did not reach a logged-in claims page."""
 
 
 @dataclass(frozen=True)
@@ -84,6 +101,12 @@ class ClaimsRow:
     runner_up: int | None
 
 
+@dataclass(frozen=True)
+class NfbcBrowserCookies:
+    liu: str
+    jwt: str | None = None
+
+
 def _require_bs4():
     try:
         from bs4 import BeautifulSoup
@@ -93,6 +116,59 @@ def _require_bs4():
             "pip install beautifulsoup4"
         ) from exc
     return BeautifulSoup
+
+
+def _require_playwright():
+    try:
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise SystemExit(
+            "playwright is required for --browser. Install with: "
+            "pip install playwright && playwright install chromium"
+        ) from exc
+    return sync_playwright, PlaywrightTimeout
+
+
+def claims_page_url(league_id: int) -> str:
+    return CLAIMS_PAGE_URL.format(league_id=league_id)
+
+
+def cookies_from_env(
+    environ: dict[str, str] | None = None,
+) -> NfbcBrowserCookies | None:
+    """Read ``NFBC_LIU`` / ``NFBC_JWT`` if set. Does not print values."""
+    env = os.environ if environ is None else environ
+    liu = (env.get("NFBC_LIU") or "").strip()
+    if not liu:
+        return None
+    jwt = (env.get("NFBC_JWT") or "").strip() or None
+    if liu.lower().startswith("liu="):
+        liu = liu[4:].strip()
+    if jwt and jwt.lower().startswith("jwt="):
+        jwt = jwt[4:].strip()
+    return NfbcBrowserCookies(liu=liu, jwt=jwt)
+
+
+def playwright_cookie_list(auth: NfbcBrowserCookies) -> list[dict[str, str]]:
+    cookies = [
+        {
+            "name": "liu",
+            "value": auth.liu,
+            "domain": COOKIE_DOMAIN,
+            "path": "/",
+        }
+    ]
+    if auth.jwt:
+        cookies.append(
+            {
+                "name": "jwt",
+                "value": auth.jwt,
+                "domain": COOKIE_DOMAIN,
+                "path": "/",
+            }
+        )
+    return cookies
 
 
 def parse_week_title(title: str, *, season: int) -> date:
@@ -165,8 +241,8 @@ def parse_claims_html(
     )
     if not tables:
         raise ClaimsParseError(
-            "No tables with class 'claims' found. Save the full /claims page "
-            "from a logged-in browser."
+            "No tables with class 'claims' found. Log in in the browser "
+            "window, or pass a full /claims page with --html."
         )
 
     rows: list[ClaimsRow] = []
@@ -247,17 +323,85 @@ def default_output_path(league_id: int) -> Path:
     return Path(f"claims_{league_id}.csv")
 
 
+def _page_looks_challenged(html: str, title: str | None) -> bool:
+    blob = f"{title or ''} {html[:4000]}".lower()
+    return (
+        "just a moment" in blob
+        or "attention required" in blob
+        or "cf-mitigated" in blob
+        or "__cf_chl" in html
+    )
+
+
+def fetch_claims_html_with_browser(
+    league_id: int,
+    *,
+    headed: bool = True,
+    user_data_dir: Path | None = None,
+    timeout_seconds: int = DEFAULT_BROWSER_TIMEOUT_SECONDS,
+    cookies: NfbcBrowserCookies | None = None,
+) -> str:
+    """Open ``/claims?league_id=…`` in Chromium and return the page HTML."""
+    sync_playwright, PlaywrightTimeout = _require_playwright()
+    url = claims_page_url(league_id)
+    profile = user_data_dir or DEFAULT_USER_DATA_DIR
+    profile.mkdir(parents=True, exist_ok=True)
+    timeout_ms = timeout_seconds * 1000
+
+    if headed:
+        print(
+            f"Opening {url} in Chromium. Log in if prompted; waiting up to "
+            f"{timeout_seconds}s for table.claims …",
+            file=sys.stderr,
+        )
+
+    launch_args: list[str] = []
+    if sys.platform.startswith("linux"):
+        launch_args.extend(["--no-sandbox", "--disable-dev-shm-usage"])
+
+    with sync_playwright() as playwright:
+        context = playwright.chromium.launch_persistent_context(
+            str(profile),
+            headless=not headed,
+            args=launch_args,
+            viewport={"width": 1400, "height": 900},
+        )
+        try:
+            if cookies is not None:
+                context.add_cookies(playwright_cookie_list(cookies))
+            page = context.pages[0] if context.pages else context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            try:
+                page.wait_for_selector(CLAIMS_TABLE_SELECTOR, timeout=timeout_ms)
+            except PlaywrightTimeout as exc:
+                html = page.content()
+                title = page.title()
+                if _page_looks_challenged(html, title):
+                    raise ClaimsFetchError(
+                        "Cloudflare still challenged this Chromium session. "
+                        "Re-run headed on your machine, complete the check, "
+                        f"and keep the profile at {profile}."
+                    ) from exc
+                raise ClaimsFetchError(
+                    "Claims tables did not appear. Log in at nfc.shgn.com in "
+                    f"the Chromium window (profile {profile}) and re-run."
+                ) from exc
+            return page.content()
+        finally:
+            context.close()
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Parse a browser-saved NFBC claims HTML page into a local CSV. "
-            "Default league is Nolen OC (1828)."
+            "Capture one NFBC claims league to a local CSV. "
+            "Default: open Chromium for Nolen OC (1828)."
         )
     )
     parser.add_argument(
         "--html",
-        required=True,
-        help="Path to a browser-saved claims page (e.g. claims_1828.html).",
+        default=None,
+        help="Parse a browser-saved claims page instead of opening Chromium.",
     )
     parser.add_argument(
         "--league-id",
@@ -282,26 +426,60 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Output CSV path (default: ./claims_<league_id>.csv).",
     )
+    parser.add_argument(
+        "--headed",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Show Chromium so you can log in (default: headed).",
+    )
+    parser.add_argument(
+        "--user-data-dir",
+        default=None,
+        help=(
+            "Persistent Chromium profile (default: "
+            f"{DEFAULT_USER_DATA_DIR})."
+        ),
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=DEFAULT_BROWSER_TIMEOUT_SECONDS,
+        help="How long to wait for table.claims after opening the page.",
+    )
     return parser.parse_args(argv)
+
+
+def load_claims_html(args: argparse.Namespace) -> str:
+    if args.html:
+        html_path = Path(args.html)
+        if not html_path.is_file():
+            raise ClaimsFetchError(f"HTML file not found: {html_path}")
+        return html_path.read_text(encoding="utf-8", errors="replace")
+
+    user_data_dir = (
+        Path(args.user_data_dir) if args.user_data_dir else DEFAULT_USER_DATA_DIR
+    )
+    return fetch_claims_html_with_browser(
+        args.league_id,
+        headed=args.headed,
+        user_data_dir=user_data_dir,
+        timeout_seconds=args.timeout_seconds,
+        cookies=cookies_from_env(),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    html_path = Path(args.html)
-    if not html_path.is_file():
-        print(f"HTML file not found: {html_path}", file=sys.stderr)
-        return 1
-
-    html = html_path.read_text(encoding="utf-8", errors="replace")
     try:
+        html = load_claims_html(args)
         rows = parse_claims_html(
             html,
             league_id=args.league_id,
             format=args.format,
             season=args.season,
         )
-    except ClaimsParseError as exc:
-        print(f"Failed to parse {html_path}: {exc}", file=sys.stderr)
+    except (ClaimsParseError, ClaimsFetchError) as exc:
+        print(f"Failed to capture claims: {exc}", file=sys.stderr)
         return 1
 
     output = Path(args.output) if args.output else default_output_path(args.league_id)

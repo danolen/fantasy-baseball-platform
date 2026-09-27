@@ -32,3 +32,7 @@ venv/
 .env.local
 .DS_Store
 
+# Local NFBC claims captures (#298). Saved HTML can include session tokens.
+claims_*.csv
+claims_*.html
+
