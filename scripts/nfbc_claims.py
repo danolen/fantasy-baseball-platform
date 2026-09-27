@@ -1,19 +1,12 @@
 #!/usr/bin/env python3
-"""Capture one NFBC claims league to a local CSV (#298).
+"""Capture NFBC claims pages to S3 (#298).
 
 NFBC ``/claims`` is blocked by Cloudflare for ``requests``-style clients
 (same as league ``standings.data.php``). This is a one-time, end-of-season
-operator script you run on your machine. No Prefect, no S3 in this iteration.
+operator script you run on your machine. No Prefect.
 
-This chunk covers one Online Championship league (default ``1828``, Nolen OC).
-The all-league loop and S3 upload come later.
-
-Default: attach to a Chrome window you already started, or launch installed
-Google Chrome (not Playwright's bundled Chromium). Playwright Chromium is
-what Cloudflare's "click this box if you are a human" loop detects.
-
-Recommended when the checkbox keeps coming back — start Chrome yourself,
-log in there, then attach:
+Recommended: start a debug Chrome, log in, then attach and upload every
+2026 Main Event + Online Championship league (qualifiers excluded)::
 
     # quit Chrome first, then:
     /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome \\
@@ -21,19 +14,16 @@ log in there, then attach:
       --user-data-dir="$HOME/.cache/nfbc-claims-chrome"
 
     # in that window, log in at nfc.shgn.com, then:
-    python scripts/nfbc_claims.py --connect-cdp http://127.0.0.1:9222
+    python scripts/nfbc_claims.py --connect-cdp http://127.0.0.1:9222 --all --s3
 
-    python scripts/nfbc_claims.py --html ./claims_1828.html
+One league only (default 1828)::
 
-Writes ``claims_1828.csv`` in the current directory.
+    python scripts/nfbc_claims.py --connect-cdp http://127.0.0.1:9222 --s3
+    python scripts/nfbc_claims.py --html ./claims_1828.html --s3
 
-Optional login shortcuts (values only, never printed):
-    export NFBC_LIU='…'    # nfc.shgn.com ``liu`` cookie
-    export NFBC_JWT='…'    # optional ``jwt`` cookie
-
-These cookies do not skip Cloudflare. Prefer ``--connect-cdp``.
-
-Later S3 layout (not implemented here)::
+Local CSVs are named ``claims_{league_id}.csv``. After a successful S3
+put, that exact file is deleted. Other files are never touched. Use
+``--keep-local`` to skip the delete. S3 keys::
 
     s3://dn-lakehouse-dev/nfbc/claims/online_championship/claims_1828.csv
     s3://dn-lakehouse-dev/nfbc/claims/main_event/claims_{league_id}.csv
@@ -46,6 +36,7 @@ import csv
 import os
 import re
 import sys
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -82,6 +73,9 @@ DEFAULT_USER_DATA_DIR = Path.home() / ".cache" / "nfbc-claims-browser"
 DEFAULT_BROWSER_CHANNEL = "chrome"
 BROWSER_CHANNEL_CHOICES = ("chrome", "chromium")
 DEFAULT_CDP_URL = "http://127.0.0.1:9222"
+DEFAULT_S3_BASE = "s3://dn-lakehouse-dev/nfbc/claims"
+CLAIMS_CSV_NAME_RE = re.compile(r"^claims_(\d+)\.csv$")
+DEFAULT_PAUSE_SECONDS = 1.0
 
 
 class ClaimsParseError(ValueError):
@@ -90,6 +84,17 @@ class ClaimsParseError(ValueError):
 
 class ClaimsFetchError(RuntimeError):
     """The local browser did not reach a logged-in claims page."""
+
+
+class ClaimsUploadError(RuntimeError):
+    """S3 upload or the post-upload local delete failed."""
+
+
+@dataclass(frozen=True)
+class ClaimsLeague:
+    league_id: int
+    format: str
+    label: str
 
 
 @dataclass(frozen=True)
@@ -219,6 +224,44 @@ def parse_optional_int(raw: str) -> int | None:
     return int(text)
 
 
+def classify_claims_option(text: str) -> str | None:
+    """Return ``main_event`` / ``online_championship`` or None (out of scope)."""
+    lowered = " ".join(text.lower().split())
+    if lowered.startswith("main event"):
+        return "main_event"
+    if "online championship" in lowered and "qualifier" not in lowered:
+        return "online_championship"
+    return None
+
+
+def parse_claims_league_index(html: str) -> list[ClaimsLeague]:
+    """Read ME + OC league_ids from the claims ``#league_id`` dropdown."""
+    BeautifulSoup = _require_bs4()
+    soup = BeautifulSoup(html, "html.parser")
+    select = soup.find("select", id="league_id")
+    if select is None:
+        raise ClaimsParseError("Claims page has no #league_id dropdown")
+
+    seen: set[int] = set()
+    leagues: list[ClaimsLeague] = []
+    for option in select.find_all("option"):
+        raw = (option.get("value") or "").strip()
+        if not raw.isdigit():
+            continue
+        league_id = int(raw)
+        if league_id in seen:
+            continue
+        label = option.get_text(" ", strip=True)
+        fmt = classify_claims_option(label)
+        if fmt is None:
+            continue
+        seen.add(league_id)
+        leagues.append(ClaimsLeague(league_id=league_id, format=fmt, label=label))
+    if not leagues:
+        raise ClaimsParseError("No Main Event or Online Championship leagues in dropdown")
+    return leagues
+
+
 def selected_league_id(soup) -> int | None:
     select = soup.find("select", id="league_id")
     if select is None:
@@ -340,8 +383,82 @@ def write_claims_csv(path: Path, rows: list[ClaimsRow]) -> None:
         writer.writerows(rows_to_dicts(rows))
 
 
-def default_output_path(league_id: int) -> Path:
-    return Path(f"claims_{league_id}.csv")
+def default_output_path(league_id: int, output_dir: Path | None = None) -> Path:
+    parent = output_dir if output_dir is not None else Path.cwd()
+    return parent / f"claims_{league_id}.csv"
+
+
+def parse_s3_uri(s3_uri: str) -> tuple[str, str]:
+    if not s3_uri.startswith("s3://"):
+        raise ClaimsUploadError("S3 path must start with s3://")
+    parts = [p for p in s3_uri[len("s3://") :].split("/") if p]
+    if not parts:
+        raise ClaimsUploadError("S3 path must include a bucket")
+    return parts[0], "/".join(parts[1:])
+
+
+def claims_s3_key(base_prefix: str, format: str, league_id: int) -> str:
+    if format not in FORMAT_CHOICES:
+        raise ClaimsUploadError(f"Invalid claims format {format!r}")
+    filename = f"claims_{league_id}.csv"
+    folder = f"{base_prefix}/{format}" if base_prefix else format
+    return f"{folder}/{filename}"
+
+
+def claims_s3_uri(s3_base: str, format: str, league_id: int) -> str:
+    bucket, prefix = parse_s3_uri(s3_base)
+    key = claims_s3_key(prefix, format, league_id)
+    return f"s3://{bucket}/{key}"
+
+
+def upload_claims_csv(
+    path: Path,
+    *,
+    s3_base: str,
+    format: str,
+    league_id: int,
+    s3_client=None,
+) -> str:
+    """Put one local claims CSV to S3. Does not delete anything."""
+    if not path.is_file() or path.is_symlink():
+        raise ClaimsUploadError(f"Refusing to upload missing or symlink path: {path}")
+    bucket, prefix = parse_s3_uri(s3_base)
+    key = claims_s3_key(prefix, format, league_id)
+    body = path.read_bytes()
+    if not body:
+        raise ClaimsUploadError(f"Refusing to upload empty file: {path}")
+    client = s3_client
+    if client is None:
+        import boto3
+
+        client = boto3.client("s3")
+    try:
+        client.put_object(Bucket=bucket, Key=key, Body=body, ContentType="text/csv")
+    except Exception as exc:
+        raise ClaimsUploadError(f"S3 put failed for s3://{bucket}/{key}: {exc}") from exc
+    return f"s3://{bucket}/{key}"
+
+
+def is_safe_claims_csv_path(path: Path, *, league_id: int) -> bool:
+    """True only for a regular file named claims_{league_id}.csv."""
+    if path.is_symlink() or path.is_dir():
+        return False
+    match = CLAIMS_CSV_NAME_RE.fullmatch(path.name)
+    if match is None:
+        return False
+    return int(match.group(1)) == league_id and path.is_file()
+
+
+def delete_local_claims_csv(path: Path, *, league_id: int) -> None:
+    """Delete only the claims CSV we just wrote for this league_id."""
+    if not is_safe_claims_csv_path(path, league_id=league_id):
+        raise ClaimsUploadError(
+            f"Refusing to delete {path}; only a regular file named "
+            f"claims_{league_id}.csv written by this run may be removed"
+        )
+    path.unlink()
+    if path.exists():
+        raise ClaimsUploadError(f"Delete reported success but {path} still exists")
 
 
 def _page_looks_challenged(html: str, title: str | None) -> bool:
@@ -365,6 +482,126 @@ def _cloudflare_help(*, profile: Path) -> str:
     )
 
 
+class ClaimsBrowser:
+    """One Chrome session that can load many ``/claims?league_id=`` pages."""
+
+    def __init__(
+        self,
+        *,
+        headed: bool = True,
+        user_data_dir: Path | None = None,
+        timeout_seconds: int = DEFAULT_BROWSER_TIMEOUT_SECONDS,
+        cookies: NfbcBrowserCookies | None = None,
+        channel: str = DEFAULT_BROWSER_CHANNEL,
+        connect_cdp: str | None = None,
+    ) -> None:
+        self.headed = headed
+        self.user_data_dir = user_data_dir or DEFAULT_USER_DATA_DIR
+        self.timeout_seconds = timeout_seconds
+        self.cookies = cookies
+        self.channel = channel
+        self.connect_cdp = connect_cdp
+        self._playwright = None
+        self._context = None
+        self._page = None
+        self._owns_context = False
+        self._Timeout = None
+
+    def __enter__(self) -> "ClaimsBrowser":
+        sync_playwright, timeout_cls = _require_playwright()
+        self._Timeout = timeout_cls
+        self._playwright = sync_playwright().start()
+        launch_args = ["--disable-blink-features=AutomationControlled"]
+        if sys.platform.startswith("linux"):
+            launch_args.extend(["--no-sandbox", "--disable-dev-shm-usage"])
+
+        if self.connect_cdp:
+            print(
+                f"Attaching to Chrome at {self.connect_cdp}. "
+                f"Waiting up to {self.timeout_seconds}s per league …",
+                file=sys.stderr,
+            )
+            browser = self._playwright.chromium.connect_over_cdp(self.connect_cdp)
+            self._context = (
+                browser.contexts[0] if browser.contexts else browser.new_context()
+            )
+            self._page = self._context.new_page()
+        else:
+            if self.headed:
+                print(
+                    f"Opening {self.channel}. If the Cloudflare box loops, "
+                    "use --connect-cdp.",
+                    file=sys.stderr,
+                )
+            self.user_data_dir.mkdir(parents=True, exist_ok=True)
+            launch_kwargs: dict = {
+                "headless": not self.headed,
+                "args": launch_args,
+                "viewport": {"width": 1400, "height": 900},
+                "ignore_default_args": ["--enable-automation"],
+            }
+            if self.channel == "chrome":
+                launch_kwargs["channel"] = "chrome"
+            try:
+                self._context = self._playwright.chromium.launch_persistent_context(
+                    str(self.user_data_dir),
+                    **launch_kwargs,
+                )
+            except Exception as exc:
+                self.close()
+                raise ClaimsFetchError(
+                    f"Could not launch {self.channel}. Install Google Chrome "
+                    "or pass --channel chromium. If Cloudflare loops, "
+                    f"attach instead:\n  {chrome_debug_command()}\n"
+                    f"  python scripts/nfbc_claims.py --connect-cdp "
+                    f"{DEFAULT_CDP_URL}\n({exc})"
+                ) from exc
+            self._owns_context = True
+            if self.cookies is not None:
+                self._context.add_cookies(playwright_cookie_list(self.cookies))
+            self._page = (
+                self._context.pages[0] if self._context.pages else self._context.new_page()
+            )
+        return self
+
+    def fetch(self, league_id: int) -> str:
+        if self._page is None or self._Timeout is None:
+            raise ClaimsFetchError("Browser session is not open")
+        url = claims_page_url(league_id)
+        timeout_ms = self.timeout_seconds * 1000
+        self._page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+        try:
+            self._page.wait_for_selector(CLAIMS_TABLE_SELECTOR, timeout=timeout_ms)
+        except self._Timeout as exc:
+            html = self._page.content()
+            title = self._page.title()
+            if _page_looks_challenged(html, title):
+                raise ClaimsFetchError(
+                    _cloudflare_help(profile=self.user_data_dir)
+                ) from exc
+            raise ClaimsFetchError(
+                "Claims tables did not appear. Log in at nfc.shgn.com, "
+                f"or attach to an already-logged-in Chrome with "
+                f"--connect-cdp {DEFAULT_CDP_URL}."
+            ) from exc
+        return self._page.content()
+
+    def close(self) -> None:
+        if self._page is not None and self.connect_cdp:
+            self._page.close()
+        self._page = None
+        if self._owns_context and self._context is not None:
+            self._context.close()
+        self._context = None
+        self._owns_context = False
+        if self._playwright is not None:
+            self._playwright.stop()
+            self._playwright = None
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+
 def fetch_claims_html_with_browser(
     league_id: int,
     *,
@@ -376,92 +613,22 @@ def fetch_claims_html_with_browser(
     connect_cdp: str | None = None,
 ) -> str:
     """Open ``/claims?league_id=…`` and return the page HTML."""
-    sync_playwright, PlaywrightTimeout = _require_playwright()
-    url = claims_page_url(league_id)
-    profile = user_data_dir or DEFAULT_USER_DATA_DIR
-    timeout_ms = timeout_seconds * 1000
-
-    if connect_cdp:
-        print(
-            f"Attaching to Chrome at {connect_cdp} and opening {url}. "
-            f"Waiting up to {timeout_seconds}s for table.claims …",
-            file=sys.stderr,
-        )
-    elif headed:
-        print(
-            f"Opening {url} in {channel}. If the Cloudflare box loops, "
-            f"use --connect-cdp. Waiting up to {timeout_seconds}s …",
-            file=sys.stderr,
-        )
-
-    launch_args = ["--disable-blink-features=AutomationControlled"]
-    if sys.platform.startswith("linux"):
-        launch_args.extend(["--no-sandbox", "--disable-dev-shm-usage"])
-
-    with sync_playwright() as playwright:
-        owns_context = False
-        page = None
-        try:
-            if connect_cdp:
-                browser = playwright.chromium.connect_over_cdp(connect_cdp)
-                context = (
-                    browser.contexts[0] if browser.contexts else browser.new_context()
-                )
-                page = context.new_page()
-            else:
-                profile.mkdir(parents=True, exist_ok=True)
-                launch_kwargs: dict = {
-                    "headless": not headed,
-                    "args": launch_args,
-                    "viewport": {"width": 1400, "height": 900},
-                    "ignore_default_args": ["--enable-automation"],
-                }
-                if channel == "chrome":
-                    launch_kwargs["channel"] = "chrome"
-                try:
-                    context = playwright.chromium.launch_persistent_context(
-                        str(profile),
-                        **launch_kwargs,
-                    )
-                except Exception as exc:
-                    raise ClaimsFetchError(
-                        f"Could not launch {channel}. Install Google Chrome "
-                        "or pass --channel chromium. If Cloudflare loops, "
-                        f"attach instead:\n  {chrome_debug_command()}\n"
-                        f"  python scripts/nfbc_claims.py --connect-cdp "
-                        f"{DEFAULT_CDP_URL}\n({exc})"
-                    ) from exc
-                owns_context = True
-                if cookies is not None:
-                    context.add_cookies(playwright_cookie_list(cookies))
-                page = context.pages[0] if context.pages else context.new_page()
-
-            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
-            try:
-                page.wait_for_selector(CLAIMS_TABLE_SELECTOR, timeout=timeout_ms)
-            except PlaywrightTimeout as exc:
-                html = page.content()
-                title = page.title()
-                if _page_looks_challenged(html, title):
-                    raise ClaimsFetchError(_cloudflare_help(profile=profile)) from exc
-                raise ClaimsFetchError(
-                    "Claims tables did not appear. Log in at nfc.shgn.com, "
-                    f"or attach to an already-logged-in Chrome with "
-                    f"--connect-cdp {DEFAULT_CDP_URL}."
-                ) from exc
-            return page.content()
-        finally:
-            if page is not None and connect_cdp:
-                page.close()
-            if owns_context:
-                context.close()
+    with ClaimsBrowser(
+        headed=headed,
+        user_data_dir=user_data_dir,
+        timeout_seconds=timeout_seconds,
+        cookies=cookies,
+        channel=channel,
+        connect_cdp=connect_cdp,
+    ) as browser:
+        return browser.fetch(league_id)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Capture one NFBC claims league to a local CSV. "
-            "Default: open installed Chrome for Nolen OC (1828)."
+            "Capture NFBC claims to a local CSV and optionally S3. "
+            "Default: one league (1828). Use --all for every 2026 ME+OC league."
         )
     )
     parser.add_argument(
@@ -528,7 +695,54 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_BROWSER_TIMEOUT_SECONDS,
         help="How long to wait for table.claims after opening the page.",
     )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help=(
+            "Capture every Main Event and Online Championship league listed "
+            "on the claims dropdown. Qualifiers are skipped. Requires a "
+            "browser session, not --html."
+        ),
+    )
+    parser.add_argument(
+        "--s3",
+        action="store_true",
+        help=(
+            "Upload each claims CSV to S3, then delete that local CSV. "
+            f"Default prefix: {DEFAULT_S3_BASE}/{{format}}/claims_{{id}}.csv"
+        ),
+    )
+    parser.add_argument(
+        "--s3-base",
+        default=DEFAULT_S3_BASE,
+        help=f"S3 prefix for --s3 (default: {DEFAULT_S3_BASE}).",
+    )
+    parser.add_argument(
+        "--keep-local",
+        action="store_true",
+        help="After a successful S3 upload, keep the local claims CSV.",
+    )
+    parser.add_argument(
+        "--pause-seconds",
+        type=float,
+        default=DEFAULT_PAUSE_SECONDS,
+        help="Sleep between leagues when using --all (default: 1).",
+    )
     return parser.parse_args(argv)
+
+
+def _browser_kwargs(args: argparse.Namespace) -> dict:
+    user_data_dir = (
+        Path(args.user_data_dir) if args.user_data_dir else DEFAULT_USER_DATA_DIR
+    )
+    return {
+        "headed": args.headed,
+        "user_data_dir": user_data_dir,
+        "timeout_seconds": args.timeout_seconds,
+        "cookies": None if args.connect_cdp else cookies_from_env(),
+        "channel": args.channel,
+        "connect_cdp": args.connect_cdp,
+    }
 
 
 def load_claims_html(args: argparse.Namespace) -> str:
@@ -537,42 +751,134 @@ def load_claims_html(args: argparse.Namespace) -> str:
         if not html_path.is_file():
             raise ClaimsFetchError(f"HTML file not found: {html_path}")
         return html_path.read_text(encoding="utf-8", errors="replace")
+    return fetch_claims_html_with_browser(args.league_id, **_browser_kwargs(args))
 
-    user_data_dir = (
-        Path(args.user_data_dir) if args.user_data_dir else DEFAULT_USER_DATA_DIR
+
+def process_league(
+    html: str,
+    *,
+    league: ClaimsLeague,
+    season: int,
+    output: Path,
+    s3: bool,
+    s3_base: str,
+    keep_local: bool,
+    s3_client=None,
+) -> str | None:
+    """Parse one league, write CSV, optionally upload to S3 and delete local."""
+    rows = parse_claims_html(
+        html,
+        league_id=league.league_id,
+        format=league.format,
+        season=season,
     )
-    return fetch_claims_html_with_browser(
-        args.league_id,
-        headed=args.headed,
-        user_data_dir=user_data_dir,
-        timeout_seconds=args.timeout_seconds,
-        cookies=None if args.connect_cdp else cookies_from_env(),
-        channel=args.channel,
-        connect_cdp=args.connect_cdp,
-    )
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-    try:
-        html = load_claims_html(args)
-        rows = parse_claims_html(
-            html,
-            league_id=args.league_id,
-            format=args.format,
-            season=args.season,
-        )
-    except (ClaimsParseError, ClaimsFetchError) as exc:
-        print(f"Failed to capture claims: {exc}", file=sys.stderr)
-        return 1
-
-    output = Path(args.output) if args.output else default_output_path(args.league_id)
     write_claims_csv(output, rows)
     weeks = sorted({row.faab_date for row in rows})
     print(
         f"Wrote {len(rows)} claims across {len(weeks)} FAAB weeks "
         f"({weeks[0].isoformat()} to {weeks[-1].isoformat()}) → {output}"
     )
+    if not s3:
+        return None
+    uri = upload_claims_csv(
+        output,
+        s3_base=s3_base,
+        format=league.format,
+        league_id=league.league_id,
+        s3_client=s3_client,
+    )
+    print(f"Uploaded {uri}")
+    if keep_local:
+        return uri
+    delete_local_claims_csv(output, league_id=league.league_id)
+    print(f"Deleted local {output.name}")
+    return uri
+
+
+def _single_league(args: argparse.Namespace) -> ClaimsLeague:
+    return ClaimsLeague(
+        league_id=args.league_id,
+        format=args.format,
+        label=f"league {args.league_id}",
+    )
+
+
+def run_all_leagues(args: argparse.Namespace, *, s3_client=None) -> int:
+    if args.html:
+        raise ClaimsFetchError("--all needs a live browser session, not --html")
+    failures: list[str] = []
+    uploaded = 0
+    with ClaimsBrowser(**_browser_kwargs(args)) as browser:
+        seed_html = browser.fetch(args.league_id)
+        leagues = parse_claims_league_index(seed_html)
+        print(
+            f"Found {len(leagues)} ME/OC leagues "
+            f"({sum(1 for item in leagues if item.format == 'main_event')} ME, "
+            f"{sum(1 for item in leagues if item.format == 'online_championship')} OC)",
+            file=sys.stderr,
+        )
+        cached = {args.league_id: seed_html}
+        for index, league in enumerate(leagues, start=1):
+            print(
+                f"[{index}/{len(leagues)}] {league.format} {league.league_id} "
+                f"{league.label}",
+                file=sys.stderr,
+            )
+            try:
+                html = cached.pop(league.league_id, None) or browser.fetch(
+                    league.league_id
+                )
+                output = default_output_path(league.league_id)
+                process_league(
+                    html,
+                    league=league,
+                    season=args.season,
+                    output=output,
+                    s3=args.s3,
+                    s3_base=args.s3_base,
+                    keep_local=args.keep_local,
+                    s3_client=s3_client,
+                )
+                if args.s3:
+                    uploaded += 1
+            except (ClaimsParseError, ClaimsFetchError, ClaimsUploadError) as exc:
+                failures.append(f"{league.league_id}: {exc}")
+                print(f"Failed league {league.league_id}: {exc}", file=sys.stderr)
+            if index < len(leagues) and args.pause_seconds > 0:
+                time.sleep(args.pause_seconds)
+    if failures:
+        print(
+            f"Finished with {len(failures)} failure(s); uploaded {uploaded}.",
+            file=sys.stderr,
+        )
+        for item in failures:
+            print(f"  {item}", file=sys.stderr)
+        return 1
+    print(f"Finished {len(leagues)} leagues; uploaded {uploaded}.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    try:
+        if args.all:
+            return run_all_leagues(args)
+        html = load_claims_html(args)
+        output = (
+            Path(args.output) if args.output else default_output_path(args.league_id)
+        )
+        process_league(
+            html,
+            league=_single_league(args),
+            season=args.season,
+            output=output,
+            s3=args.s3,
+            s3_base=args.s3_base,
+            keep_local=args.keep_local,
+        )
+    except (ClaimsParseError, ClaimsFetchError, ClaimsUploadError) as exc:
+        print(f"Failed to capture claims: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 
