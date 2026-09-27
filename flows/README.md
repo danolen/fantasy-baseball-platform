@@ -245,8 +245,13 @@ Cloudflare checkbox loops, attach to a debug Chrome you started yourself:
   --remote-debugging-port=9222 \
   --user-data-dir="$HOME/.cache/nfbc-claims-chrome"
 # log in at nfc.shgn.com in that window, then:
-python scripts/nfbc_claims.py --connect-cdp http://127.0.0.1:9222
+python scripts/nfbc_claims.py --connect-cdp http://127.0.0.1:9222 --all --s3
 ```
+
+That writes each `claims_{league_id}.csv` locally, uploads to
+`s3://dn-lakehouse-dev/nfbc/claims/{online_championship|main_event}/`, then
+deletes only that CSV. `--keep-local` skips the delete. Qualifier leagues are
+skipped. The IAM principal needs `s3:PutObject` on `nfbc/claims/*`.
 
 **Refresh league standings from browser HTML (supported path):**
 
