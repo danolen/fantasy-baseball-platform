@@ -141,7 +141,7 @@ def move_unpartitioned_claims(
             continue
         try:
             if _object_exists(client, bucket, dest):
-                print(f"    skip: destination already exists", file=sys.stderr)
+                print("    skip: destination already exists", file=sys.stderr)
                 skipped += 1
                 continue
             client.copy_object(
