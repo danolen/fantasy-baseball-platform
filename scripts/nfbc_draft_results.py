@@ -9,14 +9,14 @@ challenged from a datacenter client (unlike ``/claims`` and league
 ``standings.data.php``). One-time pull with session cookies, or parse a
 browser-saved HTML fragment that contains ``#tbl_draft_results``.
 
-Example (Main Event 1055, not 1828)::
+Default is Nolen OC (1828). Spike a Main Event league by passing ids::
 
     export NFBC_LIU=...   # value only, not liu=
     export NFBC_JWT=...   # optional
+    python scripts/nfbc_draft_results.py
     python scripts/nfbc_draft_results.py --league-id 1055 --format main_event
 
-    python scripts/nfbc_draft_results.py --html ./draft_1055.html \
-        --league-id 1055 --format main_event
+    python scripts/nfbc_draft_results.py --html ./draft_1828.html
 """
 
 from __future__ import annotations
@@ -48,8 +48,8 @@ CSV_COLUMNS = (
     "team_id",
     "duration",
 )
-DEFAULT_LEAGUE_ID = 1055
-DEFAULT_FORMAT = "main_event"
+DEFAULT_LEAGUE_ID = 1828
+DEFAULT_FORMAT = "online_championship"
 DEFAULT_SEASON = 2026
 FORMAT_CHOICES = ("online_championship", "main_event")
 DATA_URL = "https://nfc.shgn.com/draft_results.data.php"
@@ -273,7 +273,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description=(
             "Capture one NFBC snake-draft results table to CSV. "
             "No auction-equivalent dollars (later dbt model). "
-            f"Default league {DEFAULT_LEAGUE_ID} (Main Event)."
+            f"Default league {DEFAULT_LEAGUE_ID} (Nolen OC)."
         )
     )
     parser.add_argument(
@@ -285,7 +285,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--league-id",
         type=int,
         default=DEFAULT_LEAGUE_ID,
-        help=f"NFBC league_id (default: {DEFAULT_LEAGUE_ID}, a Main Event league).",
+        help=f"NFBC league_id (default: {DEFAULT_LEAGUE_ID}, Nolen OC).",
     )
     parser.add_argument(
         "--format",

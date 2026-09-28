@@ -113,6 +113,12 @@ def test_load_html_reads_saved_file():
     assert "tbl_draft_results" in html
 
 
+def test_cli_defaults_to_nolen_oc():
+    args = parse_args([])
+    assert args.league_id == 1828
+    assert args.format == "online_championship"
+
+
 def test_missing_html_and_cookies_is_a_fetch_error():
     args = parse_args(["--league-id", "1055"])
     with pytest.raises(DraftFetchError, match="NFBC_LIU"):
