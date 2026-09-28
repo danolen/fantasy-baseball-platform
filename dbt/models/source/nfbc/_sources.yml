@@ -58,3 +58,9 @@ sources:
           freshness:
             warn_after: {count: 24, period: hour}
             error_after: {count: 36, period: hour}
+      # Freshness skipped: one-time end-of-season capture (#298), not a
+      # scheduled feed. Glue table is unpartitioned; dbt derives
+      # year/month/day from Athena "$path" (#182).
+      - name: claims
+        external:
+          location: s3://dn-lakehouse-dev/nfbc/claims/
