@@ -7,6 +7,7 @@ the architecture decisions (control plane, work pool, cost) behind this package.
 |------|---------|
 | `hello_flow.py` | Hello-world smoke test — writes a stamped file to `s3://dn-lakehouse-dev/_meta/prefect_hello/…` (ticket #43). |
 | `nfbc_in_season.py` | NFBC in-season players → `s3://dn-lakehouse-dev/nfbc/in-season-players/…` (#44) plus league + overall standings → `s3://dn-lakehouse-dev/nfbc/in-season-standings/{league,overall}/…` (#119). |
+| `nfbc_draft_results.py` | NFBC snake-draft pick logs → `s3://dn-lakehouse-dev/nfbc/draft-results/{format}/…` (#299). Cookie POSTs; not registered in `prefect.yaml` yet. |
 | `fangraphs_ros.py` | FanGraphs ROS projections → `s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/…` (ticket #45). |
 | `ftn_faab.py` | FTN FAAB recommendations → `s3://dn-lakehouse-dev/ftn/faab/…` (ticket #46). |
 | `razzball_weekly.py` | Razzball weekly + Mon–Thu + weekend projections → `s3://dn-lakehouse-dev/razzball/projections/weekly/…` (tickets #47, #210). |
@@ -20,6 +21,7 @@ No AWS, no Prefect API needed (fastest iteration):
 ```bash
 python flows/hello_flow.py --dry-run
 python flows/nfbc_in_season.py --dry-run
+python flows/nfbc_draft_results.py --dry-run
 python flows/fangraphs_ros.py --dry-run
 python flows/ftn_faab.py --dry-run
 python flows/razzball_weekly.py --dry-run
@@ -289,6 +291,42 @@ Use `--dry-run` to preview keys without uploading.
 date partitions (`year=/month=/day=`) also use `America/New_York` so a run at
 8 AM ET and a manual upload the same calendar day land in the same folder.
 
+## NFBC draft results flow (#299)
+
+**Scope:** snake-draft pick logs for every 2026 Main Event and Online
+Championship league. Qualifiers and cash leagues are skipped. Auction-equivalent
+dollars of each pick slot are a later dbt join (#301), not this ingest.
+**Not registered in `prefect.yaml`.** Hobby is at the 5-deployment cap; add a
+named deploy when draft season starts.
+
+The 2026 spike showed `POST /draft_results.data.php` is login-gated but **not**
+Cloudflare-challenged from a datacenter client (unlike `/claims` and league
+`standings.data.php`). Cookie POSTs are the path a Prefect flow can reuse.
+
+League ids for **this** season come from the public
+`#league_id` dropdown on [draftresults/baseball](https://nfc.shgn.com/draftresults/baseball)
+(same 60 ME + 240 OC list as overall standings). How to discover **next**
+season's league_ids is a follow-up.
+
+```bash
+# operator, cookies in the environment (default league is Nolen OC 1828)
+export NFBC_LIU=...   # value only, not liu=
+export NFBC_JWT=...   # optional
+python scripts/nfbc_draft_results.py --all --s3
+
+# Prefect-shaped wrapper (Secrets Manager nfbc_liu / nfbc_jwt + S3 put)
+python flows/nfbc_draft_results.py --dry-run
+python flows/nfbc_draft_results.py
+python flows/nfbc_draft_results.py --league-id 1828
+```
+
+That writes each `draft_{league_id}.csv` locally, uploads to
+`s3://dn-lakehouse-dev/nfbc/draft-results/{online_championship|main_event}/year=/month=/day=/`,
+then deletes only that CSV. `--keep-local` skips the delete. Date partitions
+use `America/New_York`. The IAM principal needs `s3:PutObject` on
+`nfbc/draft-results/*` plus `secretsmanager:GetSecretValue` on
+`fantasy-baseball-platform`.
+
 ## Deploy to Prefect Cloud (Option A — Managed serverless, the accepted path)
 
 This is the architecture chosen in the ADR: Prefect Cloud Hobby (free) + a
@@ -308,6 +346,7 @@ prefect work-pool create --type prefect:managed managed-pool
 #    Scope the IAM principal to:
 #      - s3:PutObject on s3://dn-lakehouse-dev/nfbc/in-season-players/*
 #      - s3:PutObject on s3://dn-lakehouse-dev/nfbc/in-season-standings/*
+#      - s3:PutObject on s3://dn-lakehouse-dev/nfbc/draft-results/*
 #      - s3:PutObject on s3://dn-lakehouse-dev/fangraphs/projections/rest-of-season/*
 #      - s3:PutObject on s3://dn-lakehouse-dev/ftn/faab/*
 #      - s3:PutObject on s3://dn-lakehouse-dev/razzball/projections/weekly/*
