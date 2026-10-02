@@ -64,3 +64,10 @@ sources:
       - name: claims
         external:
           location: s3://dn-lakehouse-dev/nfbc/claims/
+      # Freshness skipped: one-time 2026 ME/OC draft capture (#299), not a
+      # scheduled feed. Glue table is unpartitioned; dbt derives
+      # year/month/day from Athena "$path" (#182). Auction-equivalent
+      # dollars of the pick slot are a later dbt join (#301), not this source.
+      - name: draft_results
+        external:
+          location: s3://dn-lakehouse-dev/nfbc/draft-results/
