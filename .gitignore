@@ -32,10 +32,12 @@ venv/
 .env.local
 .DS_Store
 
-# Local NFBC claims / draft-results captures (#298, #299).
+# Local NFBC claims / draft-results / team-stats captures (#298, #299, #300).
 # Saved HTML can include session tokens.
 claims_*.csv
 claims_*.html
 draft_*.csv
 draft_*.html
+teamstats_*.csv
+teamstats_*.html
 
